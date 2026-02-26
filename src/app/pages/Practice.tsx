@@ -8,6 +8,7 @@ export default function Practice() {
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [showExplanation, setShowExplanation] = useState(false);
   const [bookmarked, setBookmarked] = useState<string[]>([]);
+  const [jumpValue, setJumpValue] = useState('');
 
   // Get unique categories from questions
   const categories = Array.from(new Set(questions.map(q => q.category)));
@@ -31,6 +32,16 @@ export default function Practice() {
     setCurrentQuestionIndex((prev) => (prev + 1) % filteredQuestions.length);
     setSelectedAnswer(null);
     setShowExplanation(false);
+  };
+
+  const handleJump = () => {
+    const num = parseInt(jumpValue, 10);
+    if (!isNaN(num) && num >= 1 && num <= filteredQuestions.length) {
+      setCurrentQuestionIndex(num - 1);
+      setSelectedAnswer(null);
+      setShowExplanation(false);
+      setJumpValue('');
+    }
   };
 
   const handlePrevious = () => {
@@ -65,6 +76,25 @@ export default function Practice() {
       <div>
         <h1 className="text-3xl font-bold text-gray-900">题库练习</h1>
         <p className="text-gray-600 mt-1">通过单题练习巩固知识点，标记错题与收藏</p>
+      </div>
+
+      {/* Jump to question */}
+      <div className="flex items-center gap-2 mt-2">
+        <input
+          type="number"
+          min="1"
+          max={filteredQuestions.length}
+          placeholder="题号"
+          value={jumpValue}
+          onChange={(e) => setJumpValue(e.target.value)}
+          className="w-20 p-2 border rounded"
+        />
+        <button
+          onClick={handleJump}
+          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+        >
+          Go
+        </button>
       </div>
 
       {/* Category Selector */}
@@ -113,6 +143,28 @@ export default function Practice() {
           <div className="text-gray-700 mb-2">{currentQuestion.q}</div>
         </div>
 
+        {/* Optional image(s) */}
+        {currentQuestion.img && (
+          <div className="mb-6 flex flex-col gap-4">
+            {Array.isArray(currentQuestion.img) ? (
+              currentQuestion.img.map((src, idx) => (
+                <img
+                  key={idx}
+                  src={src}
+                  alt={`question illustration ${idx + 1}`}
+                  className="max-w-full mx-auto"
+                />
+              ))
+            ) : (
+              <img
+                src={currentQuestion.img}
+                alt="question illustration"
+                className="max-w-full mx-auto"
+              />
+            )}
+          </div>
+        )}
+
         {/* Chinese Question */}
         <div className="mb-6 text-gray-900 font-medium">
           {currentQuestion.q_zh}
@@ -145,7 +197,15 @@ export default function Practice() {
               >
                 <div className="flex gap-4">
                   <span className="font-semibold text-gray-700 min-w-8">{optionLabel}</span>
-                  <span className="flex-1">{option}</span>
+                  {option.startsWith('data:image') ? (
+                    <img
+                      src={option}
+                      alt={`option ${optionLabel}`}
+                      className="max-w-full"
+                    />
+                  ) : (
+                    <span className="flex-1">{option}</span>
+                  )}
                 </div>
               </button>
             );
@@ -197,27 +257,23 @@ export default function Practice() {
             上一题
           </button>
 
-          {!showExplanation ? (
-            <button
-              onClick={handleSubmit}
-              disabled={selectedAnswer === null}
-              className={`w-full sm:w-auto px-6 py-2 rounded-lg transition-colors ${
-                selectedAnswer !== null
-                  ? 'bg-orange-500 hover:bg-orange-600 text-white'
-                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              }`}
-            >
-              提交答案
-            </button>
-          ) : (
+          <div className="flex gap-2">
+            {!showExplanation && (
+              <button
+                onClick={handleSubmit}
+                className="px-6 py-2 rounded-lg bg-yellow-100 hover:bg-yellow-200 text-gray-800 transition-colors"
+              >
+                显示解析
+              </button>
+            )}
             <button
               onClick={handleNext}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors"
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors"
             >
               下一题
               <ChevronRight className="w-4 h-4" />
             </button>
-          )}
+          </div>
         </div>
       </div>
     </div>

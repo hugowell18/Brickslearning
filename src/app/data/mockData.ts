@@ -39,6 +39,8 @@ export interface Question {
   q_zh: string; // Chinese
   exp_zh: string; // Chinese explanation
   exp_link: string;
+  // optional illustration(s) for the question; may be a single data URL or an array
+  img?: string | string[];
 }
 
 export interface ExamResult {
