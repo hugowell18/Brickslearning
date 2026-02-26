@@ -1,0 +1,94 @@
+import { Link, useLocation } from 'react-router';
+import { Home, BookOpen, FileQuestion, ClipboardList, MessageSquare, Brain, Database, Shield } from 'lucide-react';
+
+const navigation = [
+  { name: '学习总览', href: '/', icon: Home },
+  { name: '学习路径', href: '/learning-path', icon: BookOpen },
+  { name: '题库练习', href: '/practice', icon: FileQuestion },
+  { name: '模拟考试', href: '/mock-exam', icon: ClipboardList },
+  { name: '社区', href: '/community', icon: MessageSquare },
+];
+
+const adminNavigation = [
+  { name: '管理后台', href: '/admin', icon: Shield },
+];
+
+export default function Sidebar() {
+  const location = useLocation();
+
+  return (
+    <div className="w-64 bg-white border-r border-gray-200 flex flex-col hidden lg:flex">
+      {/* Logo */}
+      <div className="p-6 border-b border-gray-200">
+        <div className="flex items-center gap-2">
+          <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center">
+            <Brain className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-gray-900">Databricks 认证</h1>
+            <p className="text-xs text-gray-500">学习平台</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 p-4 space-y-1">
+        {navigation.map((item) => {
+          const isActive = location.pathname === item.href;
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.name}
+              to={item.href}
+              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                isActive
+                  ? 'bg-orange-50 text-orange-600 font-medium'
+                  : 'text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+              <span>{item.name}</span>
+            </Link>
+          );
+        })}
+        
+        {/* Admin Section */}
+        <div className="pt-4 mt-4 border-t border-gray-200">
+          {adminNavigation.map((item) => {
+            const isActive = location.pathname === item.href;
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.name}
+                to={item.href}
+                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                  isActive
+                    ? 'bg-gray-900 text-white font-medium'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                <span>{item.name}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* Exam Tracks */}
+      <div className="p-4 border-t border-gray-200">
+        <div className="text-xs font-semibold text-gray-500 mb-3">考试方向</div>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 p-2 rounded bg-blue-50 text-blue-700">
+            <Database className="w-4 h-4" />
+            <span className="text-sm font-medium">Data Analyst</span>
+          </div>
+          <div className="flex items-center gap-2 p-2 rounded bg-purple-50 text-purple-700">
+            <Database className="w-4 h-4" />
+            <span className="text-sm font-medium">Data Engineer</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
