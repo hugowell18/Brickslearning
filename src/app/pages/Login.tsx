@@ -61,8 +61,6 @@ export default function Login() {
 
       {/* Right Side - Login Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-4 lg:p-12">
-      {/* Right Side - Login Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 lg:p-12">
       <div className="max-w-md w-full">
         {/* Logo - Desktop */}
         <div className="text-center mb-8 lg:hidden">

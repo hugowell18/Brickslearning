@@ -1,4 +1,5 @@
 import { LucideIcon, Brain, Database, CheckCircle, Clock, BookOpen, User, Target, BarChart2, MessageSquare, AlertCircle } from 'lucide-react';
+import questionsData from './questions.json';
 
 // --- Types ---
 
@@ -30,14 +31,14 @@ export interface LearningModule {
 }
 
 export interface Question {
-  id: string;
-  track: 'analyst' | 'engineer';
-  content: string;
-  options: string[];
-  correctAnswer: number; // Index
-  explanation: string;
-  tags: string[];
-  difficulty: 'easy' | 'medium' | 'hard';
+  uid: string;
+  category: string;
+  q: string; // English
+  opts: string[];
+  ans: string; // A, B, C, D
+  q_zh: string; // Chinese
+  exp_zh: string; // Chinese explanation
+  exp_link: string;
 }
 
 export interface ExamResult {
@@ -170,128 +171,7 @@ export const modules: LearningModule[] = [
   },
 ];
 
-export const questions: Question[] = [
-  {
-    id: 'q1',
-    track: 'analyst',
-    content: 'Which of the following is a key benefit of the Lakehouse architecture compared to a traditional Data Warehouse?',
-    options: [
-      'It supports structured data only.',
-      'It separates compute and storage, allowing for independent scaling and support for diverse data types.',
-      'It requires proprietary hardware to run effectively.',
-      'It is optimized solely for business intelligence reporting.'
-    ],
-    correctAnswer: 1,
-    explanation: 'The Lakehouse architecture combines the best elements of data lakes and data warehouses. A key benefit is the separation of compute and storage, which allows for cost-effective scaling and the ability to handle structured, semi-structured, and unstructured data.',
-    tags: ['Lakehouse', 'Architecture'],
-    difficulty: 'easy',
-  },
-  {
-    id: 'q2',
-    track: 'engineer',
-    content: 'In Delta Lake, what mechanism is used to ensure data integrity during concurrent writes?',
-    options: [
-      'Table locking',
-      'Optimistic Concurrency Control',
-      'Pessimistic Concurrency Control',
-      'Snapshot Isolation only'
-    ],
-    correctAnswer: 1,
-    explanation: 'Delta Lake uses Optimistic Concurrency Control (OCC) to handle concurrent writes. It checks for conflicts before committing changes, ensuring ACID compliance without locking the entire table for long periods.',
-    tags: ['Delta Lake', 'Concurrency'],
-    difficulty: 'medium',
-  },
-  {
-    id: 'q3',
-    track: 'analyst',
-    content: 'Which SQL command is used to view the history of operations on a Delta table?',
-    options: [
-      'SHOW HISTORY table_name',
-      'DESCRIBE HISTORY table_name',
-      'SELECT * FROM table_name_history',
-      'VIEW LOGS table_name'
-    ],
-    correctAnswer: 1,
-    explanation: 'The command `DESCRIBE HISTORY table_name` retrieves the commit history of a Delta table, showing operations, users, and timestamps.',
-    tags: ['SQL', 'Delta Lake'],
-    difficulty: 'easy',
-  },
-  {
-    id: 'q4',
-    track: 'engineer',
-    content: 'What is the primary purpose of Auto Loader in Databricks?',
-    options: [
-      'To automatically load data from cloud storage into Delta tables as new files arrive.',
-      'To automatically optimize SQL queries.',
-      'To manage cluster auto-scaling.',
-      'To visualize data automatically.'
-    ],
-    correctAnswer: 0,
-    explanation: 'Auto Loader efficiently processes new data files as they arrive in cloud storage and loads them into Delta tables. It supports schema evolution and is designed for streaming ingestion.',
-    tags: ['Auto Loader', 'Ingestion'],
-    difficulty: 'medium',
-  },
-  {
-    id: 'q5',
-    track: 'analyst',
-    content: 'What is the purpose of the OPTIMIZE command in Delta Lake?',
-    options: [
-      'To delete old data files',
-      'To compact small files into larger ones for better read performance',
-      'To create indexes on tables',
-      'To update table statistics only'
-    ],
-    correctAnswer: 1,
-    explanation: 'OPTIMIZE compacts small files into larger ones, improving read performance by reducing the number of files to scan. It can also be combined with ZORDER for co-location of related data.',
-    tags: ['Delta Lake', 'Optimization'],
-    difficulty: 'medium',
-  },
-  {
-    id: 'q6',
-    track: 'engineer',
-    content: 'Which statement about Unity Catalog is correct?',
-    options: [
-      'It only works with Delta tables',
-      'It provides centralized governance and access control across multiple workspaces',
-      'It replaces the Hive metastore completely',
-      'It only manages data, not notebooks or models'
-    ],
-    correctAnswer: 1,
-    explanation: 'Unity Catalog provides unified governance across multiple Databricks workspaces, managing access control for data, notebooks, and ML models with fine-grained permissions.',
-    tags: ['Unity Catalog', 'Governance'],
-    difficulty: 'medium',
-  },
-  {
-    id: 'q7',
-    track: 'analyst',
-    content: 'What does the VACUUM command do in Delta Lake?',
-    options: [
-      'Optimizes query performance',
-      'Removes data files that are no longer referenced by the table',
-      'Compresses data files',
-      'Updates table metadata'
-    ],
-    correctAnswer: 1,
-    explanation: 'VACUUM removes old data files that are no longer referenced after a retention period (default 7 days), freeing up storage space while maintaining time travel capabilities within the retention window.',
-    tags: ['Delta Lake', 'Storage'],
-    difficulty: 'easy',
-  },
-  {
-    id: 'q8',
-    track: 'engineer',
-    content: 'What is the recommended approach for handling late-arriving data in Structured Streaming?',
-    options: [
-      'Ignore late data completely',
-      'Use watermarking to define how late data can arrive',
-      'Restart the stream when late data arrives',
-      'Store late data in a separate table'
-    ],
-    correctAnswer: 1,
-    explanation: 'Watermarking allows you to specify how late data can arrive while still being processed. It balances completeness with latency by defining a threshold for accepting late events.',
-    tags: ['Streaming', 'Watermarking'],
-    difficulty: 'hard',
-  },
-];
+export const questions: Question[] = questionsData as Question[];
 
 export const examHistory: ExamResult[] = [
   { id: 'e1', date: '2023-10-15', score: 72, totalQuestions: 45, track: 'analyst', duration: '55 min' },
