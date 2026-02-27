@@ -324,6 +324,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const clearPracticeProgress = (uids: string[], category?: string) => {
     if (!user || cloudState.blocked || uids.length === 0) return;
     const target = new Set(uids);
+    const reviewKey = `${REVIEW_EVENTS_KEY_PREFIX}${user.id}`;
+    const attemptKey = `${ATTEMPT_EVENTS_KEY_PREFIX}${user.id}`;
 
     setCompletedQuestions((prev) => {
       const next = prev.filter((uid) => !target.has(uid));
@@ -345,6 +347,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       return next;
     });
+
+    // Also clear review / attempt event streams for these questions,
+    // so dashboard learning and accuracy trends are consistent with reset state.
+    void getJson<Array<{ uid: string; at: string }>>(reviewKey, [])
+      .then((events) => {
+        const next = (Array.isArray(events) ? events : []).filter((e) => !target.has(e.uid));
+        return setJson(reviewKey, next);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        handleCloudFailure(message);
+      });
+
+    void getJson<Array<{ uid: string; correct: boolean; at: string }>>(attemptKey, [])
+      .then((events) => {
+        const next = (Array.isArray(events) ? events : []).filter((e) => !target.has(e.uid));
+        return setJson(attemptKey, next);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        handleCloudFailure(message);
+      });
 
     // Also reset learning modules for the selected practice category.
     if (category) {

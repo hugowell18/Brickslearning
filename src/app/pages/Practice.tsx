@@ -176,7 +176,7 @@ export default function Practice() {
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex justify-between items-start gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Question Bank Practice</h1>
+          <h1 className="text-3xl font-bold text-gray-900">题库练习</h1>
           <p className="text-gray-600 mt-1">已完成 {completedCount} / {filteredQuestions.length}</p>
         </div>
         <div className="flex gap-2">
