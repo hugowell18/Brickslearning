@@ -1,9 +1,12 @@
-import { useState, useEffect } from 'react';
+﻿import { useState } from 'react';
 import { ChevronRight, ChevronLeft, BookmarkPlus, Bookmark } from 'lucide-react';
 import { questions } from '../data/mockData';
 import { useApp } from '../../context/AppContext';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Button } from '../components/ui/button';
+import { getPracticeDotClassName, getPracticeDotState } from './practiceProgressState';
+import { shouldMarkCompletedOnNext, shouldMarkCompletedOnSubmit } from './practiceCompletionPolicy';
 
-// map category names that appear in question data to module IDs defined in mockData
 const CATEGORY_MODULE_MAP: Record<string, string> = {
   'Data Analyst': 'ma1',
   'Data Engineer': 'me1',
@@ -12,47 +15,58 @@ const CATEGORY_MODULE_MAP: Record<string, string> = {
 export default function Practice() {
   type PracticeState = 'selection' | 'in-session';
   const [practiceState, setPracticeState] = useState<PracticeState>('selection');
-
+  const [progressTabOpen, setProgressTabOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
-  const { updateProgress, markQuestionCompleted, completedQuestions } = useApp();
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [showExplanation, setShowExplanation] = useState(false);
   const [bookmarked, setBookmarked] = useState<string[]>([]);
   const [jumpValue, setJumpValue] = useState('');
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
 
-  // Get unique categories from questions
-  const categories = Array.from(new Set(questions.map(q => q.category)));
+  const {
+    updateProgress,
+    markQuestionCompleted,
+    completedQuestions,
+    questionStatus,
+    setQuestionResult,
+    clearPracticeProgress,
+    recordQuestionAttempt,
+    recordQuestionReview,
+    cloudState,
+  } = useApp();
 
-  // Filter questions by category (only valid when a category is selected)
-  const filteredQuestions = selectedCategory
-    ? questions.filter(q => q.category === selectedCategory)
-    : [];
+  const categories = Array.from(new Set(questions.map((q) => q.category)));
+  const filteredQuestions = selectedCategory ? questions.filter((q) => q.category === selectedCategory) : [];
   const currentQuestion = filteredQuestions[currentQuestionIndex];
+  const completedCount = filteredQuestions.filter((q) => completedQuestions.includes(q.uid)).length;
+  const completionPct = filteredQuestions.length > 0 ? Math.round((completedCount / filteredQuestions.length) * 100) : 0;
 
-  // progress for current category
-  const completedCount = filteredQuestions.filter(q => completedQuestions.includes(q.uid)).length;
-
-  // Convert ans (A/B/C/D/E...) to index
   const getCorrectAnswerIndex = () => {
     if (!currentQuestion) return -1;
-    const answerCode = currentQuestion.ans.charCodeAt(0);
-    return answerCode - 65; // A=65, B=66, etc.
+    return currentQuestion.ans.charCodeAt(0) - 65;
   };
 
-  // Get option label from index (0->A, 1->B, etc.)
-  const getOptionLabel = (index: number) => {
-    return String.fromCharCode(65 + index);
-  };
+  const getOptionLabel = (index: number) => String.fromCharCode(65 + index);
 
   const handleSubmit = () => {
+    if (!currentQuestion) return;
     setShowExplanation(true);
-    if (currentQuestion) {
+    if (shouldMarkCompletedOnSubmit()) {
       markQuestionCompleted(currentQuestion.uid);
+    }
+    recordQuestionReview(currentQuestion.uid);
+
+    if (selectedAnswer) {
+      const correctAnswer = getOptionLabel(getCorrectAnswerIndex());
+      const isCorrect = selectedAnswer === correctAnswer;
+      setQuestionResult(currentQuestion.uid, isCorrect);
+      recordQuestionAttempt(currentQuestion.uid, isCorrect);
     }
   };
 
   const handleNext = () => {
+    if (!currentQuestion || filteredQuestions.length === 0) return;
     const nextIndex = (currentQuestionIndex + 1) % filteredQuestions.length;
     const isLast = currentQuestionIndex === filteredQuestions.length - 1;
 
@@ -60,20 +74,19 @@ export default function Practice() {
     setSelectedAnswer(null);
     setShowExplanation(false);
 
-    // if we just finished the last question, mark module completed
     if (isLast && selectedCategory) {
       const modId = CATEGORY_MODULE_MAP[selectedCategory];
       if (modId) updateProgress(modId, 'completed');
     }
-    // mark this question too since user moved on
-    if (currentQuestion) {
+
+    if (shouldMarkCompletedOnNext()) {
       markQuestionCompleted(currentQuestion.uid);
     }
   };
 
   const handleJump = () => {
     const num = parseInt(jumpValue, 10);
-    if (!isNaN(num) && num >= 1 && num <= filteredQuestions.length) {
+    if (!Number.isNaN(num) && num >= 1 && num <= filteredQuestions.length) {
       setCurrentQuestionIndex(num - 1);
       setSelectedAnswer(null);
       setShowExplanation(false);
@@ -82,48 +95,64 @@ export default function Practice() {
   };
 
   const handlePrevious = () => {
+    if (filteredQuestions.length === 0) return;
     setCurrentQuestionIndex((prev) => (prev - 1 + filteredQuestions.length) % filteredQuestions.length);
     setSelectedAnswer(null);
     setShowExplanation(false);
   };
 
   const toggleBookmark = () => {
+    if (!currentQuestion) return;
     if (bookmarked.includes(currentQuestion.uid)) {
-      setBookmarked(bookmarked.filter(id => id !== currentQuestion.uid));
+      setBookmarked(bookmarked.filter((id) => id !== currentQuestion.uid));
     } else {
       setBookmarked([...bookmarked, currentQuestion.uid]);
     }
   };
 
-  // If we are still on the selection screen, show choices instead of questions
+  const handleClearProgress = () => {
+    if (!filteredQuestions.length) return;
+    clearPracticeProgress(
+      filteredQuestions.map((q) => q.uid),
+      selectedCategory,
+    );
+    setClearDialogOpen(false);
+    setPracticeState('selection');
+    setProgressTabOpen(false);
+  };
+
   if (practiceState === 'selection') {
     return (
       <div className="max-w-5xl mx-auto space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">题库练习</h1>
-          <p className="text-gray-600 mt-1">请选择练习类别</p>
+          <p className="text-gray-600 mt-1">请选择要练习的分类。</p>
         </div>
 
+        {cloudState.blocked && (
+          <div className="rounded-lg border border-red-200 bg-red-50 text-red-700 p-4">
+            云端同步异常：{cloudState.message || '严格一致模式下，写操作已被阻止。'}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          {categories.map(category => (
+          {categories.map((category) => (
             <button
               key={category}
               onClick={() => {
                 setSelectedCategory(category);
                 setPracticeState('in-session');
+                setProgressTabOpen(false);
                 setCurrentQuestionIndex(0);
                 setSelectedAnswer(null);
                 setShowExplanation(false);
-                // mark start of practice for related module
                 const modId = CATEGORY_MODULE_MAP[category];
-                if (modId) {
-                  updateProgress(modId, 'in-progress');
-                }
+                if (modId) updateProgress(modId, 'in-progress');
               }}
               className="text-left p-6 rounded-lg border-2 bg-white border-gray-200 hover:border-gray-300 transition-all"
             >
               <h3 className="text-xl font-semibold text-gray-900 mb-2">{category}</h3>
-              <p className="text-sm text-gray-600">共 {questions.filter(q => q.category === category).length} 题</p>
+              <p className="text-sm text-gray-600">共 {questions.filter((q) => q.category === category).length} 题</p>
             </button>
           ))}
         </div>
@@ -135,7 +164,7 @@ export default function Practice() {
     return (
       <div className="max-w-5xl mx-auto">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
-          <p className="text-gray-600">没有找到符合条件的题目</p>
+          <p className="text-gray-600">No questions found for this category.</p>
         </div>
       </div>
     );
@@ -145,27 +174,31 @@ export default function Practice() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      {/* Page Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-start gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">题库练习</h1>
-          <p className="text-gray-600 mt-1">通过单题练习巩固知识点，标记错题与收藏</p>
-          {selectedCategory && filteredQuestions.length > 0 && (
-            <p className="text-sm text-gray-600 mt-1">
-              已完成 {completedCount} / {filteredQuestions.length} 题
-            </p>
-          )}
+          <h1 className="text-3xl font-bold text-gray-900">Question Bank Practice</h1>
+          <p className="text-gray-600 mt-1">已完成 {completedCount} / {filteredQuestions.length}</p>
         </div>
-        <button
-          onClick={() => setPracticeState('selection')}
-          className="text-sm text-blue-600 hover:underline"
-        >
-          ← 返回类别选择
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setPracticeState('selection')} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-bold transition-all">
+            返回分类
+          </button>
+          <button
+            onClick={() => setProgressTabOpen((prev) => !prev)}
+            className="px-3 py-2 bg-[#1b3139] hover:bg-slate-700 text-white rounded text-xs font-bold transition-all"
+          >
+            进度侧栏
+          </button>
+        </div>
       </div>
 
-      {/* Jump to question */}
-      <div className="flex items-center gap-2 mt-2">
+      {cloudState.blocked && (
+        <div className="rounded-lg border border-red-200 bg-red-50 text-red-700 p-3 text-sm">
+          云端同步异常：{cloudState.message || '严格一致模式下，写操作已被阻止。'}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
         <input
           type="number"
           min="1"
@@ -175,67 +208,17 @@ export default function Practice() {
           onChange={(e) => setJumpValue(e.target.value)}
           className="w-20 p-2 border rounded"
         />
-        <button
-          onClick={handleJump}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-        >
+        <button onClick={handleJump} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">
           Go
         </button>
       </div>
 
-      {/* question progress indicators */}
-      {filteredQuestions.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-2">
-          {filteredQuestions.map((_, idx) => {
-            const uid = filteredQuestions[idx].uid;
-            const done = completedQuestions.includes(uid);
-            return (
-              <div
-                key={idx}
-                className={`w-6 h-6 flex items-center justify-center text-xs rounded-full border ${
-                  done ? 'bg-green-500 text-white border-green-500' : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                {idx + 1}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Category Selector */}
-      {categories.length > 1 && (
-        <div className="flex flex-col sm:flex-row gap-4">
-          {categories.map(category => (
-            <button
-              key={category}
-              onClick={() => {
-                setSelectedCategory(category);
-                setCurrentQuestionIndex(0);
-                setSelectedAnswer(null);
-                setShowExplanation(false);
-              }}
-              className={`flex-1 px-6 py-3 rounded-lg border-2 transition-all ${
-                selectedCategory === category
-                  ? 'bg-blue-50 border-blue-500 text-blue-900 font-medium'
-                  : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              {category}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Question Card */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
-        {/* Header with bookmark */}
         <div className="flex items-start justify-between mb-6">
           <div className="text-sm text-gray-600">
-            问 {currentQuestionIndex + 1} / {filteredQuestions.length}
-            {completedQuestions.includes(currentQuestion.uid) && (
-              <span className="ml-2 text-green-600">(已完成)</span>
-            )}
+            第 {currentQuestionIndex + 1} / {filteredQuestions.length} 题
+            {questionStatus[currentQuestion.uid] === 'correct' && <span className="ml-2 text-green-600">（已答对）</span>}
+            {questionStatus[currentQuestion.uid] === 'incorrect' && <span className="ml-2 text-red-600">（曾答错）</span>}
           </div>
           <button onClick={toggleBookmark} className="text-gray-600 hover:text-orange-500 transition-colors">
             {bookmarked.includes(currentQuestion.uid) ? (
@@ -246,46 +229,28 @@ export default function Practice() {
           </button>
         </div>
 
-        {/* Category and English Question */}
         <div className="mb-4">
           <div className="text-sm font-semibold text-blue-600 mb-2">{currentQuestion.category}</div>
           <div className="text-gray-700 mb-2">{currentQuestion.q}</div>
         </div>
 
-        {/* Optional image(s) */}
         {currentQuestion.img && (
           <div className="mb-6 flex flex-col gap-4">
             {Array.isArray(currentQuestion.img) ? (
-              currentQuestion.img.map((src, idx) => (
-                <img
-                  key={idx}
-                  src={src}
-                  alt={`question illustration ${idx + 1}`}
-                  className="max-w-full mx-auto"
-                />
-              ))
+              currentQuestion.img.map((src, idx) => <img key={idx} src={src} alt={`question illustration ${idx + 1}`} className="max-w-full mx-auto" />)
             ) : (
-              <img
-                src={currentQuestion.img}
-                alt="question illustration"
-                className="max-w-full mx-auto"
-              />
+              <img src={currentQuestion.img} alt="question illustration" className="max-w-full mx-auto" />
             )}
           </div>
         )}
 
-        {/* Chinese Question */}
-        <div className="mb-6 text-gray-900 font-medium">
-          {currentQuestion.q_zh}
-        </div>
+        <div className="mb-6 text-gray-900 font-medium">{currentQuestion.q_zh}</div>
 
-        {/* Options */}
         <div className="space-y-3 mb-6">
           {currentQuestion.opts.map((option, index) => {
             const optionLabel = getOptionLabel(index);
             const isSelected = selectedAnswer === optionLabel;
             const isCorrect = index === correctAnswerIndex;
-            const showResult = showExplanation;
 
             return (
               <button
@@ -293,7 +258,7 @@ export default function Practice() {
                 onClick={() => !showExplanation && setSelectedAnswer(optionLabel)}
                 disabled={showExplanation}
                 className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
-                  showResult
+                  showExplanation
                     ? isCorrect
                       ? 'bg-green-50 border-green-500'
                       : isSelected
@@ -307,11 +272,7 @@ export default function Practice() {
                 <div className="flex gap-4">
                   <span className="font-semibold text-gray-700 min-w-8">{optionLabel}</span>
                   {option.startsWith('data:image') ? (
-                    <img
-                      src={option}
-                      alt={`option ${optionLabel}`}
-                      className="max-w-full"
-                    />
+                    <img src={option} alt={`option ${optionLabel}`} className="max-w-full" />
                   ) : (
                     <span className="flex-1">{option}</span>
                   )}
@@ -321,70 +282,139 @@ export default function Practice() {
           })}
         </div>
 
-        {/* Result Display */}
         {showExplanation && (
           <div className="space-y-4 mb-6">
-            {/* Correct Answer Indicator */}
             <div className="bg-green-50 border border-green-200 rounded p-4">
-              <div className="font-semibold text-green-900">
-                正确答案 {getOptionLabel(correctAnswerIndex)}
-              </div>
+              <div className="font-semibold text-green-900">Correct Answer: {getOptionLabel(correctAnswerIndex)}</div>
             </div>
 
-            {/* Documentation Link */}
             {currentQuestion.exp_link && (
-              <a
-                href={currentQuestion.exp_link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-700 font-medium flex items-center gap-2"
-              >
+              <a href={currentQuestion.exp_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-700 font-medium flex items-center gap-2">
                 DOCS ↗
               </a>
             )}
 
-            {/* Explanation with Lightbulb Icon */}
             <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">💡</span>
-                <div>
-                  <div className="font-medium text-blue-900 mb-1">解题复盘</div>
-                  <p className="text-blue-800 text-sm">{currentQuestion.exp_zh}</p>
-                </div>
-              </div>
+              <div className="font-medium text-blue-900 mb-1">解析</div>
+              <p className="text-blue-800 text-sm">{currentQuestion.exp_zh}</p>
             </div>
           </div>
         )}
 
-        {/* Navigation */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-          <button
-            onClick={handlePrevious}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
-          >
+          <button onClick={handlePrevious} className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">
             <ChevronLeft className="w-4 h-4" />
             上一题
           </button>
 
           <div className="flex gap-2">
             {!showExplanation && (
-              <button
-                onClick={handleSubmit}
-                className="px-6 py-2 rounded-lg bg-yellow-100 hover:bg-yellow-200 text-gray-800 transition-colors"
-              >
+              <button onClick={handleSubmit} className="px-6 py-2 rounded-lg bg-yellow-100 hover:bg-yellow-200 text-gray-800 transition-colors">
                 显示解析
               </button>
             )}
-            <button
-              onClick={handleNext}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors"
-            >
+            <button onClick={handleNext} className="flex items-center justify-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors">
               下一题
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         </div>
       </div>
+
+      <Dialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>清除练习进度</DialogTitle>
+            <DialogDescription>
+              这将清除当前分类的做题记录与学习进度。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClearDialogOpen(false)}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={handleClearProgress}>
+              确认清除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <aside
+        className={`fixed right-0 top-0 h-full w-80 bg-white shadow-2xl z-30 transform transition-transform duration-300 ${
+          progressTabOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        <div className="h-full flex flex-col">
+          <div className="p-6 border-b border-slate-200 bg-slate-50">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-slate-800">持久化进度</h3>
+              <button onClick={() => setProgressTabOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold text-sm">
+                关闭
+              </button>
+            </div>
+            <div className="mt-3 text-xs text-slate-600">
+              <div>分类：<span className="font-semibold text-slate-800">{selectedCategory}</span></div>
+              <div>进度：<span className="font-semibold text-slate-800">{completionPct}%</span></div>
+              <div>已完成 {completedCount} / {filteredQuestions.length}</div>
+            </div>
+          </div>
+
+          <div className="flex-grow overflow-y-auto p-4">
+            <div className="grid grid-cols-5 gap-2">
+              {filteredQuestions.map((q, idx) => {
+                const status = questionStatus[q.uid];
+                const isCurrent = idx === currentQuestionIndex;
+                const isCompleted = completedQuestions.includes(q.uid);
+                const dotState = getPracticeDotState(status, isCompleted);
+                const className = getPracticeDotClassName(dotState, isCurrent);
+                return (
+                  <button
+                    key={q.uid}
+                    onClick={() => {
+                      setCurrentQuestionIndex(idx);
+                      setSelectedAnswer(null);
+                      setShowExplanation(false);
+                      setProgressTabOpen(false);
+                    }}
+                    className={`h-8 rounded-md border text-xs font-bold transition-colors ${className}`}
+                  >
+                    {idx + 1}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="p-4 bg-slate-50 border-t space-y-3">
+            <div className="text-xs text-slate-500">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-3 h-3 bg-emerald-500 rounded" />
+                <span>答对</span>
+              </div>
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-3 h-3 bg-red-500 rounded" />
+                <span>答错</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-white border rounded" />
+                <span>未答</span>
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="w-3 h-3 bg-emerald-100 border border-emerald-300 rounded" />
+                <span>已做（未判分）</span>
+              </div>
+            </div>
+            <button
+              onClick={() => setClearDialogOpen(true)}
+              className="w-full py-2 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors disabled:opacity-50"
+              disabled={cloudState.blocked}
+            >
+              清空当前分类进度
+            </button>
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }

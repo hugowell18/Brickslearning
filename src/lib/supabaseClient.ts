@@ -1,82 +1,147 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// grab env vars; Vite replaces these during build, but they may be undefined locally
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const KV_TABLE = 'kv_store_9b296f01';
 
 let _supabase: SupabaseClient | null = null;
 if (supabaseUrl && supabaseAnonKey) {
   _supabase = createClient(supabaseUrl, supabaseAnonKey);
-} else {
-  // do not throw here; allow the app to bundle. runtime calls will warn.
-  console.warn('Supabase env variables are missing, client will be unavailable.');
 }
+
+type HealthResult = {
+  ok: boolean;
+  message: string;
+};
+
+type CacheHealth = {
+  at: number;
+  result: HealthResult;
+};
+
+let healthCache: CacheHealth | null = null;
+const HEALTH_CACHE_TTL_MS = 10_000;
 
 function getClient(): SupabaseClient {
   if (!_supabase) {
-    throw new Error('Supabase client not initialized; set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
+    throw new Error('Supabase client is not configured.');
   }
   return _supabase;
 }
 
-/**
- * Progress is stored in the kv_store table using a key prefixed with "progress:".
- * The `value` column holds an object where each module id maps to its status string.
- */
+export function isSupabaseConfigured(): boolean {
+  return Boolean(_supabase);
+}
+
+export async function checkCloudHealth(force = false): Promise<HealthResult> {
+  if (!_supabase) {
+    return {
+      ok: false,
+      message: '云端未配置：请检查 VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY。',
+    };
+  }
+
+  const now = Date.now();
+  if (!force && healthCache && now - healthCache.at < HEALTH_CACHE_TTL_MS) {
+    return healthCache.result;
+  }
+
+  try {
+    const supabase = getClient();
+    const { error } = await supabase.from(KV_TABLE).select('key').limit(1);
+    if (error) {
+      const result = {
+        ok: false,
+        message: `云端连通失败：${error.message}`,
+      };
+      healthCache = { at: now, result };
+      return result;
+    }
+    const result = { ok: true, message: '' };
+    healthCache = { at: now, result };
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const result = {
+      ok: false,
+      message: `云端连通失败：${message}`,
+    };
+    healthCache = { at: now, result };
+    return result;
+  }
+}
+
+export async function getJson<T>(key: string, defaultValue: T): Promise<T> {
+  const health = await checkCloudHealth();
+  if (!health.ok) {
+    throw new Error(health.message);
+  }
+  const supabase = getClient();
+  const { data, error } = await supabase.from(KV_TABLE).select('value').eq('key', key).maybeSingle();
+  if (error) {
+    throw new Error(`读取云端数据失败(${key})：${error.message}`);
+  }
+  return (data?.value as T) ?? defaultValue;
+}
+
+export async function setJson<T>(key: string, value: T): Promise<void> {
+  const health = await checkCloudHealth();
+  if (!health.ok) {
+    throw new Error(health.message);
+  }
+  const supabase = getClient();
+  const { error } = await supabase.from(KV_TABLE).upsert({ key, value });
+  if (error) {
+    throw new Error(`写入云端数据失败(${key})：${error.message}`);
+  }
+}
+
+export async function listJsonByPrefix<T>(prefix: string): Promise<Array<{ key: string; value: T }>> {
+  const health = await checkCloudHealth();
+  if (!health.ok) {
+    throw new Error(health.message);
+  }
+  const supabase = getClient();
+  const { data, error } = await supabase.from(KV_TABLE).select('key,value').like('key', `${prefix}%`).limit(5000);
+  if (error) {
+    throw new Error(`读取云端列表失败(${prefix})：${error.message}`);
+  }
+  return ((data || []) as Array<{ key: string; value: T }>) ?? [];
+}
+
 export async function setProgress(userId: string, progress: Record<string, string>) {
-  if (!_supabase) return; // no-op if env not configured
-  const supabase = getClient();
-  const { error } = await supabase
-    .from('kv_store_9b296f01')
-    .upsert({ key: `progress:${userId}`, value: progress });
-
-  if (error) {
-    console.error('Failed to set progress', error);
-    throw error;
-  }
-}
-
-// store a list of completed question UIDs for the user
-export async function setCompletedQuestions(userId: string, questions: string[]) {
-  if (!_supabase) return;
-  const supabase = getClient();
-  const { error } = await supabase
-    .from('kv_store_9b296f01')
-    .upsert({ key: `completed:${userId}`, value: questions });
-  if (error) {
-    console.error('Failed to set completed questions', error);
-    throw error;
-  }
-}
-
-export async function getCompletedQuestions(userId: string) {
-  if (!_supabase) return [] as string[];
-  const supabase = getClient();
-  const { data, error } = await supabase
-    .from('kv_store_9b296f01')
-    .select('value')
-    .eq('key', `completed:${userId}`)
-    .maybeSingle();
-  if (error) {
-    console.error('Failed to get completed questions', error);
-    throw error;
-  }
-  return (data?.value as string[]) || [];
+  await setJson(`progress:${userId}`, progress);
 }
 
 export async function getProgress(userId: string) {
-  if (!_supabase) return {} as Record<string, string>;
-  const supabase = getClient();
-  const { data, error } = await supabase
-    .from('kv_store_9b296f01')
-    .select('value')
-    .eq('key', `progress:${userId}`)
-    .maybeSingle();
+  return getJson<Record<string, string>>(`progress:${userId}`, {});
+}
 
-  if (error) {
-    console.error('Failed to get progress', error);
-    throw error;
-  }
+export async function setCompletedQuestions(userId: string, questions: string[]) {
+  await setJson(`completed:${userId}`, questions);
+}
 
-  return (data?.value as Record<string, string>) || {};
+export async function getCompletedQuestions(userId: string) {
+  return getJson<string[]>(`completed:${userId}`, []);
+}
+
+export async function setUserProfile(
+  userId: string,
+  profile: {
+    id: string;
+    email: string;
+    name: string;
+    role: 'student' | 'instructor' | 'admin';
+  },
+) {
+  await setJson(`profile:${userId}`, profile);
+}
+
+export async function getUserProfile(userId: string) {
+  return getJson<{
+    id: string;
+    email: string;
+    name: string;
+    role: 'student' | 'instructor' | 'admin';
+  } | null>(`profile:${userId}`, null);
 }

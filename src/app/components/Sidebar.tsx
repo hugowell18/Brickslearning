@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router';
 import { Home, BookOpen, FileQuestion, ClipboardList, MessageSquare, Brain, Database, Shield } from 'lucide-react';
+import { useApp } from '../../context/AppContext';
 
 const navigation = [
   { name: '学习总览', href: '/', icon: Home },
@@ -9,16 +10,13 @@ const navigation = [
   { name: '社区', href: '/community', icon: MessageSquare },
 ];
 
-const adminNavigation = [
-  { name: '管理后台', href: '/admin', icon: Shield },
-];
-
 export default function Sidebar() {
   const location = useLocation();
+  const { user } = useApp();
+  const isAdmin = user?.role === 'admin';
 
   return (
     <div className="w-64 bg-white border-r border-gray-200 flex flex-col hidden lg:flex">
-      {/* Logo */}
       <div className="p-6 border-b border-gray-200">
         <div className="flex items-center gap-2">
           <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center">
@@ -31,7 +29,6 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1">
         {navigation.map((item) => {
           const isActive = location.pathname === item.href;
@@ -41,9 +38,7 @@ export default function Sidebar() {
               key={item.name}
               to={item.href}
               className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                isActive
-                  ? 'bg-orange-50 text-orange-600 font-medium'
-                  : 'text-gray-700 hover:bg-gray-50'
+                isActive ? 'bg-orange-50 text-orange-600 font-medium' : 'text-gray-700 hover:bg-gray-50'
               }`}
             >
               <Icon className="w-5 h-5" />
@@ -51,31 +46,22 @@ export default function Sidebar() {
             </Link>
           );
         })}
-        
-        {/* Admin Section */}
-        <div className="pt-4 mt-4 border-t border-gray-200">
-          {adminNavigation.map((item) => {
-            const isActive = location.pathname === item.href;
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.name}
-                to={item.href}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-gray-900 text-white font-medium'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <Icon className="w-5 h-5" />
-                <span>{item.name}</span>
-              </Link>
-            );
-          })}
-        </div>
+
+        {isAdmin && (
+          <div className="pt-4 mt-4 border-t border-gray-200">
+            <Link
+              to="/admin"
+              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                location.pathname === '/admin' ? 'bg-gray-900 text-white font-medium' : 'text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <Shield className="w-5 h-5" />
+              <span>管理后台</span>
+            </Link>
+          </div>
+        )}
       </nav>
 
-      {/* Exam Tracks */}
       <div className="p-4 border-t border-gray-200">
         <div className="text-xs font-semibold text-gray-500 mb-3">考试方向</div>
         <div className="space-y-2">

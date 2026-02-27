@@ -1,175 +1,204 @@
-﻿import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { CURRENT_USER, MODULES as INITIAL_MODULES, QUESTIONS, POSTS } from '../data/mockData';
-import { getProgress, setProgress, getCompletedQuestions, setCompletedQuestions as saveCompletedQuestions } from '../lib/supabaseClient';
+import {
+  checkCloudHealth,
+  getCompletedQuestions,
+  getJson,
+  getProgress,
+  getUserProfile,
+  setCompletedQuestions as saveCompletedQuestions,
+  setJson,
+  setProgress,
+  setUserProfile,
+} from '../lib/supabaseClient';
+
+type UserRole = 'student' | 'instructor' | 'admin';
+type ModuleStatus = 'not-started' | 'in-progress' | 'completed';
+
+interface CloudState {
+  strict: true;
+  checking: boolean;
+  blocked: boolean;
+  message: string;
+}
 
 interface AppContextType {
   user: typeof CURRENT_USER | null;
   modules: typeof INITIAL_MODULES;
   completedQuestions: string[];
+  questionStatus: Record<string, 'correct' | 'incorrect'>;
   questions: typeof QUESTIONS;
   posts: typeof POSTS;
+  cloudState: CloudState;
   login: (
     email: string,
     options?: {
-      role?: 'student' | 'instructor' | 'admin';
+      role?: UserRole;
       name?: string;
-    }
+    },
   ) => void;
   logout: () => void;
-  updateProgress: (moduleId: string, status: 'not-started' | 'in-progress' | 'completed') => void;
+  refreshCloudState: () => Promise<void>;
+  updateProfile: (patch: { name?: string }) => Promise<void>;
+  updateProgress: (moduleId: string, status: ModuleStatus) => void;
   markQuestionCompleted: (uid: string) => void;
+  setQuestionResult: (uid: string, correct: boolean) => void;
+  clearPracticeProgress: (uids: string[], category?: string) => void;
   recordQuestionReview: (uid: string) => void;
   recordQuestionAttempt: (uid: string, correct: boolean) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
+
 const PROGRESS_KEY_PREFIX = 'db_progress:';
 const COMPLETED_META_KEY_PREFIX = `${PROGRESS_KEY_PREFIX}completed_meta:`;
+const MODULE_COMPLETE_META_KEY_PREFIX = `${PROGRESS_KEY_PREFIX}module_complete_meta:`;
 const REVIEW_EVENTS_KEY_PREFIX = `${PROGRESS_KEY_PREFIX}review_events:`;
 const ATTEMPT_EVENTS_KEY_PREFIX = `${PROGRESS_KEY_PREFIX}attempt_events:`;
 const PROFILE_KEY_PREFIX = 'db_profile:';
+const QUESTION_STATUS_KEY_PREFIX = `${PROGRESS_KEY_PREFIX}question_status:`;
 
 function buildUserIdFromEmail(email: string) {
   const normalized = email.trim().toLowerCase();
   return `u_${normalized.replace(/[^a-z0-9]/g, '_')}`;
 }
 
-function migrateLegacyLocalData(userId: string) {
-  if (userId === 'u1') return;
-  const legacyId = 'u1';
-  const keyPairs = [
-    [`${PROGRESS_KEY_PREFIX}${legacyId}`, `${PROGRESS_KEY_PREFIX}${userId}`],
-    [`${PROGRESS_KEY_PREFIX}completed:${legacyId}`, `${PROGRESS_KEY_PREFIX}completed:${userId}`],
-    [`${COMPLETED_META_KEY_PREFIX}${legacyId}`, `${COMPLETED_META_KEY_PREFIX}${userId}`],
-    [`${REVIEW_EVENTS_KEY_PREFIX}${legacyId}`, `${REVIEW_EVENTS_KEY_PREFIX}${userId}`],
-    [`${ATTEMPT_EVENTS_KEY_PREFIX}${legacyId}`, `${ATTEMPT_EVENTS_KEY_PREFIX}${userId}`],
-    [`db_mock_exam_history:${legacyId}`, `db_mock_exam_history:${userId}`],
-  ] as const;
-
-  keyPairs.forEach(([oldKey, newKey]) => {
-    const current = localStorage.getItem(newKey);
-    if (current) return;
-    const legacy = localStorage.getItem(oldKey);
-    if (!legacy) return;
-    localStorage.setItem(newKey, legacy);
-  });
-}
-
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<typeof CURRENT_USER | null>(null);
   const [modules, setModules] = useState<typeof INITIAL_MODULES>(
-    INITIAL_MODULES.map((m) => ({ ...m, status: m.status ?? 'not-started' }))
+    INITIAL_MODULES.map((m) => ({ ...m, status: m.status ?? 'not-started' })),
   );
   const [completedQuestions, setCompletedQuestions] = useState<string[]>([]);
+  const [questionStatus, setQuestionStatus] = useState<Record<string, 'correct' | 'incorrect'>>({});
+  const [cloudState, setCloudState] = useState<CloudState>({
+    strict: true,
+    checking: true,
+    blocked: true,
+    message: '正在检查云端状态...',
+  });
+
+  const handleCloudFailure = (message: string) => {
+    setCloudState({
+      strict: true,
+      checking: false,
+      blocked: true,
+      message: message || '云端同步失败，系统已进入只读阻断模式。',
+    });
+  };
+
+  const refreshCloudState = async () => {
+    setCloudState((prev) => ({ ...prev, checking: true }));
+    const result = await checkCloudHealth(true);
+    if (!result.ok) {
+      handleCloudFailure(result.message);
+      return;
+    }
+    setCloudState({
+      strict: true,
+      checking: false,
+      blocked: false,
+      message: '',
+    });
+  };
 
   useEffect(() => {
     const savedUser = localStorage.getItem('db_user');
     if (savedUser) {
-      const u = JSON.parse(savedUser);
-      setUser(u);
+      try {
+        setUser(JSON.parse(savedUser));
+      } catch {
+        localStorage.removeItem('db_user');
+      }
     }
+    void refreshCloudState();
   }, []);
 
   useEffect(() => {
     if (!user) return;
 
-    const localProgressKey = `${PROGRESS_KEY_PREFIX}${user.id}`;
-    const localCompletedKey = `${PROGRESS_KEY_PREFIX}completed:${user.id}`;
+    let cancelled = false;
 
-    const readLocalProgress = () => {
+    const loadUserData = async () => {
+      const health = await checkCloudHealth();
+      if (!health.ok) {
+        if (!cancelled) handleCloudFailure(health.message);
+        return;
+      }
+
+      if (!cancelled) {
+        setCloudState({
+          strict: true,
+          checking: false,
+          blocked: false,
+          message: '',
+        });
+      }
+
       try {
-        const raw = localStorage.getItem(localProgressKey);
-        if (!raw) return {} as Record<string, 'completed' | 'in-progress' | 'not-started'>;
-        return JSON.parse(raw) as Record<string, 'completed' | 'in-progress' | 'not-started'>;
-      } catch {
-        return {} as Record<string, 'completed' | 'in-progress' | 'not-started'>;
+        const [progressMap, qs, remoteProfile, statusMap, moduleCompleteMeta] = await Promise.all([
+          getProgress(user.id),
+          getCompletedQuestions(user.id),
+          getUserProfile(user.id),
+          getJson<Record<string, 'correct' | 'incorrect'>>(`${QUESTION_STATUS_KEY_PREFIX}${user.id}`, {}),
+          getJson<Record<string, string>>(`${MODULE_COMPLETE_META_KEY_PREFIX}${user.id}`, {}),
+        ]);
+
+        if (cancelled) return;
+
+        setModules(
+          INITIAL_MODULES.map((m) => {
+            const s = progressMap[m.id] as ModuleStatus | undefined;
+            const completedAt = moduleCompleteMeta[m.id];
+            return {
+              ...m,
+              status: s || 'not-started',
+              completedAt: completedAt || m.completedAt,
+            };
+          }),
+        );
+        setCompletedQuestions(Array.isArray(qs) ? qs : []);
+        setQuestionStatus(statusMap || {});
+
+        if (remoteProfile && remoteProfile.name && remoteProfile.name !== user.name) {
+          const mergedUser = { ...user, name: remoteProfile.name, role: remoteProfile.role };
+          setUser(mergedUser);
+          localStorage.setItem('db_user', JSON.stringify(mergedUser));
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!cancelled) handleCloudFailure(message);
       }
     };
 
-    const readLocalCompleted = () => {
-      try {
-        const raw = localStorage.getItem(localCompletedKey);
-        if (!raw) return [] as string[];
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? (parsed as string[]) : [];
-      } catch {
-        return [] as string[];
-      }
+    void loadUserData();
+    return () => {
+      cancelled = true;
     };
-
-    // load progress from supabase and merge with local cache.
-    getProgress(user.id)
-      .then(progressMap => {
-        const localProgress = readLocalProgress();
-        const remoteProgress = (progressMap || {}) as Record<string, 'completed' | 'in-progress' | 'not-started'>;
-        const hasRemote = Object.keys(remoteProgress).length > 0;
-        const merged = hasRemote ? { ...localProgress, ...remoteProgress } : localProgress;
-        setModules(
-          INITIAL_MODULES.map(m => {
-            const s = merged[m.id] as 'completed' | 'in-progress' | 'not-started' | undefined;
-            return { ...m, status: s || 'not-started' };
-          })
-        );
-      })
-      .catch(err => {
-        console.warn('progress fetch failed, using localStorage', err);
-        const progressMap = readLocalProgress();
-        setModules(
-          INITIAL_MODULES.map(m => {
-            const s = progressMap[m.id];
-            return { ...m, status: s || 'not-started' };
-          })
-        );
-      });
-
-    getCompletedQuestions(user.id)
-      .then(qs => {
-        const localCompleted = readLocalCompleted();
-        const remoteCompleted = Array.isArray(qs) ? qs : [];
-        const hasRemote = remoteCompleted.length > 0;
-        const merged = hasRemote
-          ? Array.from(new Set([...localCompleted, ...remoteCompleted]))
-          : localCompleted;
-        setCompletedQuestions(merged);
-      })
-      .catch(err => {
-        console.warn('completed questions fetch failed, using localStorage', err);
-        setCompletedQuestions(readLocalCompleted());
-      });
-  }, [user]);
+  }, [user?.id]);
 
   const login = (
     email: string,
-    options?: { role?: 'student' | 'instructor' | 'admin'; name?: string }
+    options?: {
+      role?: UserRole;
+      name?: string;
+    },
   ) => {
     const normalizedEmail = email.trim().toLowerCase();
     const nextId = buildUserIdFromEmail(normalizedEmail);
-    let savedProfile: Partial<typeof CURRENT_USER> = {};
-    try {
-      const raw = localStorage.getItem(`${PROFILE_KEY_PREFIX}${nextId}`);
-      if (raw) savedProfile = JSON.parse(raw) as Partial<typeof CURRENT_USER>;
-    } catch {
-      savedProfile = {};
-    }
-
-    const baseUser = user?.id === nextId ? { ...user } : { ...CURRENT_USER };
-    const fallbackName =
-      typeof savedProfile.name === 'string' && savedProfile.name.trim()
-        ? savedProfile.name.trim()
-        : normalizedEmail.split('@')[0] || '同学';
-    const fallbackRole =
-      savedProfile.role === 'student' || savedProfile.role === 'instructor' || savedProfile.role === 'admin'
-        ? savedProfile.role
-        : baseUser.role;
+    const fallbackName = normalizedEmail.split('@')[0] || '同学';
 
     const newUser = {
-      ...baseUser,
+      ...CURRENT_USER,
       id: nextId,
       email: normalizedEmail,
-      role: options?.role ?? fallbackRole,
+      role: options?.role ?? 'student',
       name: options?.name?.trim() ? options.name.trim() : fallbackName,
+      progress: {
+        analyst: 0,
+        engineer: 0,
+      },
     };
-    migrateLegacyLocalData(newUser.id);
+
     setUser(newUser);
     localStorage.setItem('db_user', JSON.stringify(newUser));
     localStorage.setItem(
@@ -179,121 +208,236 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         email: newUser.email,
         name: newUser.name,
         role: newUser.role,
-      })
+      }),
     );
+
+    void setUserProfile(newUser.id, {
+      id: newUser.id,
+      email: newUser.email,
+      name: newUser.name,
+      role: newUser.role,
+    }).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      handleCloudFailure(message);
+    });
   };
 
   const logout = () => {
     setUser(null);
+    setModules(INITIAL_MODULES.map((m) => ({ ...m, status: m.status ?? 'not-started' })));
+    setCompletedQuestions([]);
     localStorage.removeItem('db_user');
   };
 
-  const updateProgress = (moduleId: string, status: 'not-started' | 'in-progress' | 'completed') => {
+  const updateProfile = async (patch: { name?: string }) => {
+    if (!user) return;
+    if (cloudState.blocked) {
+      throw new Error(cloudState.message || '云端已阻断，无法更新资料。');
+    }
+
+    const nextName = patch.name?.trim() || user.name;
+    const nextUser = { ...user, name: nextName };
+    setUser(nextUser);
+    localStorage.setItem('db_user', JSON.stringify(nextUser));
+    localStorage.setItem(
+      `${PROFILE_KEY_PREFIX}${nextUser.id}`,
+      JSON.stringify({
+        id: nextUser.id,
+        email: nextUser.email,
+        name: nextUser.name,
+        role: nextUser.role,
+      }),
+    );
+    try {
+      await setUserProfile(nextUser.id, {
+        id: nextUser.id,
+        email: nextUser.email,
+        name: nextUser.name,
+        role: nextUser.role,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      handleCloudFailure(message);
+      throw error;
+    }
+  };
+
+  const updateProgress = (moduleId: string, status: ModuleStatus) => {
+    if (!user || cloudState.blocked) return;
     setModules((prev) => {
       const updated = prev.map((m) => {
-        if (m.id === moduleId) {
-          const updated_m = { ...m, status };
-          if (status === 'completed' && !m.completedAt) {
-            (updated_m as any).completedAt = new Date().toISOString();
-          }
-          return updated_m;
+        if (m.id !== moduleId) return m;
+        const next = { ...m, status };
+        if (status === 'completed' && !next.completedAt) {
+          (next as { completedAt?: string }).completedAt = new Date().toISOString();
         }
-        return m;
+        return next;
       });
-
-      if (user) {
-        const map: Record<string, string> = {};
-        updated.forEach((m) => {
-          map[m.id] = m.status || 'not-started';
-        });
-        localStorage.setItem(`${PROGRESS_KEY_PREFIX}${user.id}`, JSON.stringify(map));
-        
-        // 记录模块完成时间
-        const metaKey = `${PROGRESS_KEY_PREFIX}module_complete_meta:${user.id}`;
-        let completeMeta: Record<string, string> = {};
-        try {
-          const raw = localStorage.getItem(metaKey);
-          if (raw) completeMeta = JSON.parse(raw);
-        } catch {
-          completeMeta = {};
+      const map: Record<string, string> = {};
+      const completeMeta: Record<string, string> = {};
+      updated.forEach((m) => {
+        map[m.id] = m.status || 'not-started';
+        if ((m as { completedAt?: string }).completedAt) {
+          completeMeta[m.id] = (m as { completedAt?: string }).completedAt as string;
         }
-        const module = updated.find(m => m.id === moduleId);
-        if (module?.completedAt && !completeMeta[moduleId]) {
-          completeMeta[moduleId] = module.completedAt;
-          localStorage.setItem(metaKey, JSON.stringify(completeMeta));
-        }
-        
-        setProgress(user.id, map).catch(console.error);
-      }
-
+      });
+      void setProgress(user.id, map).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        handleCloudFailure(message);
+      });
+      void setJson(`${MODULE_COMPLETE_META_KEY_PREFIX}${user.id}`, completeMeta).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        handleCloudFailure(message);
+      });
       return updated;
     });
   };
 
   const markQuestionCompleted = (uid: string) => {
-    setCompletedQuestions(prev => {
+    if (!user || cloudState.blocked) return;
+    setCompletedQuestions((prev) => {
       if (prev.includes(uid)) return prev;
       const next = [...prev, uid];
-      if (user) {
-        localStorage.setItem(`${PROGRESS_KEY_PREFIX}completed:${user.id}`, JSON.stringify(next));
-        const metaKey = `${COMPLETED_META_KEY_PREFIX}${user.id}`;
-        let completedMeta: Record<string, string> = {};
-        try {
-          const raw = localStorage.getItem(metaKey);
-          if (raw) completedMeta = JSON.parse(raw);
-        } catch {
-          completedMeta = {};
-        }
-        if (!completedMeta[uid]) {
-          completedMeta[uid] = new Date().toISOString();
-          localStorage.setItem(metaKey, JSON.stringify(completedMeta));
-        }
-        saveCompletedQuestions(user.id, next).catch(console.error);
-      }
+      void saveCompletedQuestions(user.id, next).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        handleCloudFailure(message);
+      });
       return next;
     });
   };
 
+  const setQuestionResult = (uid: string, correct: boolean) => {
+    if (!user || cloudState.blocked) return;
+    setQuestionStatus((prev) => {
+      const next: Record<string, 'correct' | 'incorrect'> = {
+        ...prev,
+        [uid]: correct ? 'correct' : 'incorrect',
+      };
+      void setJson(`${QUESTION_STATUS_KEY_PREFIX}${user.id}`, next).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        handleCloudFailure(message);
+      });
+      return next;
+    });
+  };
+
+  const clearPracticeProgress = (uids: string[], category?: string) => {
+    if (!user || cloudState.blocked || uids.length === 0) return;
+    const target = new Set(uids);
+
+    setCompletedQuestions((prev) => {
+      const next = prev.filter((uid) => !target.has(uid));
+      void saveCompletedQuestions(user.id, next).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        handleCloudFailure(message);
+      });
+      return next;
+    });
+
+    setQuestionStatus((prev) => {
+      const next: Record<string, 'correct' | 'incorrect'> = {};
+      Object.keys(prev).forEach((uid) => {
+        if (!target.has(uid)) next[uid] = prev[uid];
+      });
+      void setJson(`${QUESTION_STATUS_KEY_PREFIX}${user.id}`, next).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        handleCloudFailure(message);
+      });
+      return next;
+    });
+
+    // Also reset learning modules for the selected practice category.
+    if (category) {
+      const normalized = category.toLowerCase();
+      const track = normalized.includes('engineer') ? 'engineer' : normalized.includes('analyst') ? 'analyst' : null;
+      if (track) {
+        setModules((prev) => {
+          const updated = prev.map((m) => {
+            const moduleTrack = (m as { track?: string; trackId?: string }).trackId ?? (m as { track?: string; trackId?: string }).track;
+            if (moduleTrack !== track) return m;
+            const next = { ...m, status: 'not-started' as ModuleStatus };
+            if ('completedAt' in next) {
+              delete (next as { completedAt?: string }).completedAt;
+            }
+            return next;
+          });
+
+          const map: Record<string, string> = {};
+          const completeMeta: Record<string, string> = {};
+          updated.forEach((m) => {
+            map[m.id] = m.status || 'not-started';
+            if ((m as { completedAt?: string }).completedAt) {
+              completeMeta[m.id] = (m as { completedAt?: string }).completedAt as string;
+            }
+          });
+          void setProgress(user.id, map).catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            handleCloudFailure(message);
+          });
+          void setJson(`${MODULE_COMPLETE_META_KEY_PREFIX}${user.id}`, completeMeta).catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            handleCloudFailure(message);
+          });
+          return updated;
+        });
+      }
+    }
+  };
+
   const recordQuestionReview = (uid: string) => {
-    if (!user) return;
+    if (!user || cloudState.blocked) return;
     const key = `${REVIEW_EVENTS_KEY_PREFIX}${user.id}`;
-    let events: Array<{ uid: string; at: string }> = [];
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) events = JSON.parse(raw);
-    } catch {
-      events = [];
-    }
-    events.push({ uid, at: new Date().toISOString() });
-    // Keep only recent history to avoid unbounded growth.
-    if (events.length > 5000) {
-      events = events.slice(events.length - 5000);
-    }
-    localStorage.setItem(key, JSON.stringify(events));
+    void getJson<Array<{ uid: string; at: string }>>(key, [])
+      .then((events) => {
+        const next = [...events, { uid, at: new Date().toISOString() }];
+        const trimmed = next.length > 5000 ? next.slice(next.length - 5000) : next;
+        return setJson(key, trimmed);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        handleCloudFailure(message);
+      });
   };
 
   const recordQuestionAttempt = (uid: string, correct: boolean) => {
-    if (!user) return;
+    if (!user || cloudState.blocked) return;
     const key = `${ATTEMPT_EVENTS_KEY_PREFIX}${user.id}`;
-    let events: Array<{ uid: string; correct: boolean; at: string }> = [];
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) events = JSON.parse(raw);
-    } catch {
-      events = [];
-    }
-    events.push({ uid, correct, at: new Date().toISOString() });
-    if (events.length > 10000) {
-      events = events.slice(events.length - 10000);
-    }
-    localStorage.setItem(key, JSON.stringify(events));
+    void getJson<Array<{ uid: string; correct: boolean; at: string }>>(key, [])
+      .then((events) => {
+        const next = [...events, { uid, correct, at: new Date().toISOString() }];
+        const trimmed = next.length > 10000 ? next.slice(next.length - 10000) : next;
+        return setJson(key, trimmed);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        handleCloudFailure(message);
+      });
   };
 
-  return (
-    <AppContext.Provider value={{ user, modules, completedQuestions, questions: QUESTIONS, posts: POSTS, login, logout, updateProgress, markQuestionCompleted, recordQuestionReview, recordQuestionAttempt }}>
-      {children}
-    </AppContext.Provider>
+  const contextValue = useMemo<AppContextType>(
+    () => ({
+      user,
+      modules,
+      completedQuestions,
+      questionStatus,
+      questions: QUESTIONS,
+      posts: POSTS,
+      cloudState,
+      login,
+      logout,
+      refreshCloudState,
+      updateProfile,
+      updateProgress,
+      markQuestionCompleted,
+      setQuestionResult,
+      clearPracticeProgress,
+      recordQuestionReview,
+      recordQuestionAttempt,
+    }),
+    [user, modules, completedQuestions, questionStatus, cloudState],
   );
+
+  return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;
 };
 
 export const useApp = () => {
