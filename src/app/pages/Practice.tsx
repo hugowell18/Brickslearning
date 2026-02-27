@@ -1,9 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ChevronRight, ChevronLeft, BookmarkPlus, Bookmark } from 'lucide-react';
 import { questions } from '../data/mockData';
+import { useApp } from '../../context/AppContext';
+
+// map category names that appear in question data to module IDs defined in mockData
+const CATEGORY_MODULE_MAP: Record<string, string> = {
+  'Data Analyst': 'ma1',
+  'Data Engineer': 'me1',
+};
 
 export default function Practice() {
-  const [selectedCategory, setSelectedCategory] = useState<string>('Data Analyst');
+  type PracticeState = 'selection' | 'in-session';
+  const [practiceState, setPracticeState] = useState<PracticeState>('selection');
+
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const { updateProgress, markQuestionCompleted, completedQuestions } = useApp();
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [showExplanation, setShowExplanation] = useState(false);
@@ -12,26 +23,52 @@ export default function Practice() {
 
   // Get unique categories from questions
   const categories = Array.from(new Set(questions.map(q => q.category)));
-  
-  // Filter questions by category
-  const filteredQuestions = questions.filter(q => q.category === selectedCategory);
+
+  // Filter questions by category (only valid when a category is selected)
+  const filteredQuestions = selectedCategory
+    ? questions.filter(q => q.category === selectedCategory)
+    : [];
   const currentQuestion = filteredQuestions[currentQuestionIndex];
 
-  // Convert ans (A/B/C/D) to index
+  // progress for current category
+  const completedCount = filteredQuestions.filter(q => completedQuestions.includes(q.uid)).length;
+
+  // Convert ans (A/B/C/D/E...) to index
   const getCorrectAnswerIndex = () => {
     if (!currentQuestion) return -1;
-    const answerMap: { [key: string]: number } = { 'A': 0, 'B': 1, 'C': 2, 'D': 3 };
-    return answerMap[currentQuestion.ans] || 0;
+    const answerCode = currentQuestion.ans.charCodeAt(0);
+    return answerCode - 65; // A=65, B=66, etc.
+  };
+
+  // Get option label from index (0->A, 1->B, etc.)
+  const getOptionLabel = (index: number) => {
+    return String.fromCharCode(65 + index);
   };
 
   const handleSubmit = () => {
     setShowExplanation(true);
+    if (currentQuestion) {
+      markQuestionCompleted(currentQuestion.uid);
+    }
   };
 
   const handleNext = () => {
-    setCurrentQuestionIndex((prev) => (prev + 1) % filteredQuestions.length);
+    const nextIndex = (currentQuestionIndex + 1) % filteredQuestions.length;
+    const isLast = currentQuestionIndex === filteredQuestions.length - 1;
+
+    setCurrentQuestionIndex(nextIndex);
     setSelectedAnswer(null);
     setShowExplanation(false);
+
+    // if we just finished the last question, mark module completed
+    if (isLast && selectedCategory) {
+      const modId = CATEGORY_MODULE_MAP[selectedCategory];
+      if (modId) updateProgress(modId, 'completed');
+    }
+    // mark this question too since user moved on
+    if (currentQuestion) {
+      markQuestionCompleted(currentQuestion.uid);
+    }
   };
 
   const handleJump = () => {
@@ -58,6 +95,42 @@ export default function Practice() {
     }
   };
 
+  // If we are still on the selection screen, show choices instead of questions
+  if (practiceState === 'selection') {
+    return (
+      <div className="max-w-5xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">题库练习</h1>
+          <p className="text-gray-600 mt-1">请选择练习类别</p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          {categories.map(category => (
+            <button
+              key={category}
+              onClick={() => {
+                setSelectedCategory(category);
+                setPracticeState('in-session');
+                setCurrentQuestionIndex(0);
+                setSelectedAnswer(null);
+                setShowExplanation(false);
+                // mark start of practice for related module
+                const modId = CATEGORY_MODULE_MAP[category];
+                if (modId) {
+                  updateProgress(modId, 'in-progress');
+                }
+              }}
+              className="text-left p-6 rounded-lg border-2 bg-white border-gray-200 hover:border-gray-300 transition-all"
+            >
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">{category}</h3>
+              <p className="text-sm text-gray-600">共 {questions.filter(q => q.category === category).length} 题</p>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if (!currentQuestion) {
     return (
       <div className="max-w-5xl mx-auto">
@@ -73,9 +146,22 @@ export default function Practice() {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Page Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">题库练习</h1>
-        <p className="text-gray-600 mt-1">通过单题练习巩固知识点，标记错题与收藏</p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">题库练习</h1>
+          <p className="text-gray-600 mt-1">通过单题练习巩固知识点，标记错题与收藏</p>
+          {selectedCategory && filteredQuestions.length > 0 && (
+            <p className="text-sm text-gray-600 mt-1">
+              已完成 {completedCount} / {filteredQuestions.length} 题
+            </p>
+          )}
+        </div>
+        <button
+          onClick={() => setPracticeState('selection')}
+          className="text-sm text-blue-600 hover:underline"
+        >
+          ← 返回类别选择
+        </button>
       </div>
 
       {/* Jump to question */}
@@ -96,6 +182,26 @@ export default function Practice() {
           Go
         </button>
       </div>
+
+      {/* question progress indicators */}
+      {filteredQuestions.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {filteredQuestions.map((_, idx) => {
+            const uid = filteredQuestions[idx].uid;
+            const done = completedQuestions.includes(uid);
+            return (
+              <div
+                key={idx}
+                className={`w-6 h-6 flex items-center justify-center text-xs rounded-full border ${
+                  done ? 'bg-green-500 text-white border-green-500' : 'bg-gray-100 text-gray-600'
+                }`}
+              >
+                {idx + 1}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Category Selector */}
       {categories.length > 1 && (
@@ -127,6 +233,9 @@ export default function Practice() {
         <div className="flex items-start justify-between mb-6">
           <div className="text-sm text-gray-600">
             问 {currentQuestionIndex + 1} / {filteredQuestions.length}
+            {completedQuestions.includes(currentQuestion.uid) && (
+              <span className="ml-2 text-green-600">(已完成)</span>
+            )}
           </div>
           <button onClick={toggleBookmark} className="text-gray-600 hover:text-orange-500 transition-colors">
             {bookmarked.includes(currentQuestion.uid) ? (
@@ -173,7 +282,7 @@ export default function Practice() {
         {/* Options */}
         <div className="space-y-3 mb-6">
           {currentQuestion.opts.map((option, index) => {
-            const optionLabel = ['A', 'B', 'C', 'D'][index];
+            const optionLabel = getOptionLabel(index);
             const isSelected = selectedAnswer === optionLabel;
             const isCorrect = index === correctAnswerIndex;
             const showResult = showExplanation;
@@ -218,7 +327,7 @@ export default function Practice() {
             {/* Correct Answer Indicator */}
             <div className="bg-green-50 border border-green-200 rounded p-4">
               <div className="font-semibold text-green-900">
-                正确答案 {['A', 'B', 'C', 'D'][correctAnswerIndex]}
+                正确答案 {getOptionLabel(correctAnswerIndex)}
               </div>
             </div>
 

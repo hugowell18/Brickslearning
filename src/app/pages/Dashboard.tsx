@@ -1,7 +1,10 @@
+import { useMemo } from 'react';
 import { TrendingUp, TrendingDown, BookOpen, Trophy, Clock, Target, ArrowRight } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router';
+import { useApp } from '../../context/AppContext';
 
+// placeholder data for charts, will be overridden or computed later
 const progressData = [
   { date: '周一', analyst: 65, engineer: 45 },
   { date: '周二', analyst: 68, engineer: 52 },
@@ -20,6 +23,24 @@ const accuracyData = [
 ];
 
 export default function Dashboard() {
+  const { modules, completedQuestions } = useApp();
+
+  // derive some simple statistics
+  const analystCompleted = modules.filter(m => m.track === 'analyst' && m.status === 'completed').length;
+  const analystTotal = modules.filter(m => m.track === 'analyst').length;
+
+  const engineerCompleted = modules.filter(m => m.track === 'engineer' && m.status === 'completed').length;
+  const engineerTotal = modules.filter(m => m.track === 'engineer').length;
+
+  const overallCompleted = analystCompleted + engineerCompleted;
+  const overallTotal = analystTotal + engineerTotal;
+
+  const totalQuestionsDone = completedQuestions.length;
+
+  // dynamic progress %
+  const analystProgress = analystTotal ? Math.round((analystCompleted / analystTotal) * 100) : 0;
+  const engineerProgress = engineerTotal ? Math.round((engineerCompleted / engineerTotal) * 100) : 0;
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Welcome Banner */}
@@ -47,25 +68,33 @@ export default function Dashboard() {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
-          title="学习天数"
-          value="28"
-          change={12}
+          title="学习模块"
+          value={`${overallCompleted} / ${overallTotal}`}
+          change={0}
           trend="up"
           icon={Clock}
           color="bg-blue-500"
         />
         <StatCard
-          title="完成题目"
-          value="456"
-          change={8}
+          title="已完成题目"
+          value={`${totalQuestionsDone}`}
+          change={0}
           trend="up"
           icon={BookOpen}
           color="bg-green-500"
         />
         <StatCard
-          title="正确率"
-          value="85%"
-          change={5}
+          title="分析师进度"
+          value={`${analystProgress}%`}
+          change={0}
+          trend="up"
+          icon={BookOpen}
+          color="bg-green-500"
+        />
+        <StatCard
+          title="工程师进度"
+          value={`${engineerProgress}%`}
+          change={0}
           trend="up"
           icon={Target}
           color="bg-orange-500"
@@ -126,16 +155,16 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ExamProgressCard
           title="Data Analyst Associate"
-          progress={85}
-          completedModules={8}
-          totalModules={10}
+          progress={analystProgress}
+          completedModules={analystCompleted}
+          totalModules={analystTotal}
           color="blue"
         />
         <ExamProgressCard
           title="Data Engineer Associate"
-          progress={75}
-          completedModules={6}
-          totalModules={10}
+          progress={engineerProgress}
+          completedModules={engineerCompleted}
+          totalModules={engineerTotal}
           color="purple"
         />
       </div>
