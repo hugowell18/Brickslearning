@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SaaS Tech Architecture (AI Enhanced) - Databricks Learning</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        body { 
+            font-family: 'Inter', system-ui, -apple-system, sans-serif; 
+            background-color: #09090b; /* Zinc 950 */
+            color: #f8fafc;
+            margin: 0;
+            overflow-x: auto;
+        }
+
+        /* 玻璃拟态节点容器 */
+        .tech-node {
+            background: rgba(24, 24, 27, 0.6); /* Zinc 900 */
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(63, 63, 70, 0.5); /* Zinc 700 */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
+            position: relative;
+            z-index: 10;
+        }
+        
+        .tech-node:hover {
+            border-color: rgba(96, 165, 250, 0.5); /* Blue 400 */
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .tech-node.node-ai:hover {
+            border-color: rgba(236, 72, 153, 0.5); /* Pink 500 */
+            box-shadow: 0 0 20px rgba(236, 72, 153, 0.25);
+        }
+
+        /* 区域背景框 */
+        .zone-box {
+            background: radial-gradient(circle at top left, rgba(39, 39, 42, 0.3), transparent);
+            border: 1px dashed rgba(63, 63, 70, 0.8);
+            border-radius: 1.5rem;
+            position: relative;
+        }
+
+        /* SVG 连线动画 */
+        .animated-line {
+            stroke-dasharray: 6;
+            animation: dash 20s linear infinite;
+        }
+        .animated-line-reverse {
+            stroke-dasharray: 6;
+            animation: dash-reverse 20s linear infinite;
+        }
+        @keyframes dash {
+            to { stroke-dashoffset: -1000; }
+        }
+        @keyframes dash-reverse {
+            to { stroke-dashoffset: 1000; }
+        }
+
+        /* 标签字号 */
+        .edge-label {
+            font-size: 11px;
+            fill: #94a3b8;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            text-anchor: middle;
+            background: #09090b;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-10 min-w-[1450px] min-h-screen relative flex flex-col">
+
+    <!-- 顶部标题区 -->
+    <header class="mb-10 z-20">
+        <div class="inline-flex items-center space-x-3 px-4 py-2 rounded-full bg-zinc-900 border border-zinc-800 text-sm font-medium text-zinc-300 mb-4">
+            <span class="w-2 h-2 rounded-full bg-pink-500 animate-pulse"></span>
+            <span>AI Integrated Architecture</span>
+        </div>
+        <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-indigo-400 to-pink-400">
+            Databricks Learning Platform
+        </h1>
+        <p class="text-zinc-500 mt-2 text-sm max-w-2xl">架构拓扑图。强化展示了前端应用通过 ModelScope 免费层接入多个大模型（LLM）的实现路径。</p>
+    </header>
+
+    <!-- 架构主视图 (5列网格) -->
+    <main class="relative flex-1 grid grid-cols-5 gap-6 z-10">
+        
+        <!-- Layer 1: Data -->
+        <div class="zone-box p-5 flex flex-col space-y-6" id="zone-data">
+            <h2 class="text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-2 flex items-center">
+                <i class="fa-solid fa-server mr-2"></i> Data & Persistence
+            </h2>
+            
+            <div id="node-supabase" class="tech-node rounded-xl p-4 flex items-start space-x-3 cursor-default">
+                <div class="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 border border-emerald-500/20">
+                    <i class="fa-solid fa-database text-emerald-400 text-lg"></i>
+                </div>
+                <div>
+                    <h3 class="font-semibold text-zinc-200 text-sm">Supabase</h3>
+                    <p class="text-[10px] text-zinc-500 mt-1">云端数据库 & Auth</p>
+                </div>
+            </div>
+
+            <div id="node-localstorage" class="tech-node rounded-xl p-4 flex items-start space-x-3 cursor-default">
+                <div class="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0 border border-amber-500/20">
+                    <i class="fa-solid fa-hard-drive text-amber-400 text-lg"></i>
+                </div>
+                <div>
+                    <h3 class="font-semibold text-zinc-200 text-sm">Local Storage</h3>
+                    <p class="text-[10px] text-zinc-500 mt-1">本地防阻断缓存</p>
+                </div>
+            </div>
+
+            <div id="node-mock" class="tech-node rounded-xl p-4 flex items-start space-x-3 cursor-default">
+                <div class="w-10 h-10 rounded-lg bg-zinc-500/10 flex items-center justify-center shrink-0 border border-zinc-500/20">
+                    <i class="fa-solid fa-file-code text-zinc-400 text-lg"></i>
+                </div>
+                <div>
+                    <h3 class="font-semibold text-zinc-200 text-sm">MockData</h3>
+                    <p class="text-[10px] text-zinc-500 mt-1">静态题库基础配置</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Layer 2: State -->
+        <div class="zone-box p-5 flex flex-col justify-center" id="zone-state">
+            <h2 class="text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-6 flex items-center absolute top-5">
+                <i class="fa-solid fa-microchip mr-2"></i> State Machine
+            </h2>
+            
+            <div id="node-appcontext" class="tech-node rounded-2xl p-5 border-blue-500/30 shadow-[0_0_30px_rgba(59,130,246,0.1)] cursor-default">
+                <div class="flex items-center space-x-3 mb-4">
+                    <div class="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center border border-blue-500/40">
+                        <i class="fa-brands fa-react text-blue-400 text-xl animate-[spin_4s_linear_infinite]"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-zinc-100 text-sm">AppContext</h3>
+                        <p class="text-[10px] text-blue-400 mt-0.5">核心状态中心</p>
+                    </div>
+                </div>
+                <div class="space-y-2 mt-4">
+                    <div class="text-[10px] bg-zinc-800/50 px-2 py-1.5 rounded border border-zinc-700/50 text-zinc-400 flex justify-between">
+                        <span>User Auth</span> <i class="fa-solid fa-check text-emerald-500"></i>
+                    </div>
+                    <div class="text-[10px] bg-zinc-800/50 px-2 py-1.5 rounded border border-zinc-700/50 text-zinc-400 flex justify-between">
+                        <span>Progress Sync</span> <i class="fa-solid fa-check text-emerald-500"></i>
+                    </div>
+                    <div class="text-[10px] bg-zinc-800/50 px-2 py-1.5 rounded border border-zinc-700/50 text-zinc-400 flex justify-between">
+                        <span>Cloud Health</span> <i class="fa-solid fa-shield-halved text-blue-500"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Layer 3: Routing -->
+        <div class="zone-box p-5 flex flex-col justify-center space-y-10" id="zone-routing">
+            <h2 class="text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-6 flex items-center absolute top-5">
+                <i class="fa-solid fa-network-wired mr-2"></i> Entry & Routing
+            </h2>
+            
+            <div id="node-app" class="tech-node rounded-xl p-3 flex items-center space-x-3 cursor-default">
+                <div class="w-8 h-8 rounded bg-purple-500/10 flex items-center justify-center shrink-0 border border-purple-500/20">
+                    <i class="fa-solid fa-rocket text-purple-400 text-sm"></i>
+                </div>
+                <h3 class="font-semibold text-zinc-200 text-sm">App.tsx</h3>
+            </div>
+
+            <div id="node-router" class="tech-node rounded-xl p-3 flex items-center space-x-3 cursor-default">
+                <div class="w-8 h-8 rounded bg-indigo-500/10 flex items-center justify-center shrink-0 border border-indigo-500/20">
+                    <i class="fa-solid fa-route text-indigo-400 text-sm"></i>
+                </div>
+                <div>
+                    <h3 class="font-semibold text-zinc-200 text-sm">routes.ts</h3>
+                    <p class="text-[9px] text-zinc-500 mt-0.5">React Router v7</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Layer 4: Views -->
+        <div class="zone-box p-5 flex flex-col space-y-4" id="zone-views">
+            <h2 class="text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-2 flex items-center">
+                <i class="fa-solid fa-layer-group mr-2"></i> Layout & Pages
+            </h2>
+
+            <!-- 布局骨架 -->
+            <div id="node-layout" class="tech-node rounded-xl p-3 border-l-4 border-l-cyan-500 cursor-default">
+                <h3 class="font-semibold text-zinc-200 text-xs mb-2 flex items-center">
+                    <i class="fa-solid fa-table-columns text-cyan-400 mr-2"></i> MainLayout.tsx
+                </h3>
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="text-[10px] bg-zinc-800 px-2 py-1 rounded text-center text-zinc-400">Sidebar</div>
+                    <div class="text-[10px] bg-zinc-800 px-2 py-1 rounded text-center text-zinc-400">Header</div>
+                </div>
+            </div>
+
+            <!-- 核心业务页面 -->
+            <div id="node-pages" class="tech-node rounded-xl p-3 cursor-default">
+                <h3 class="font-semibold text-zinc-200 text-xs mb-2 flex items-center">
+                    <i class="fa-regular fa-file-code text-blue-400 mr-2"></i> Feature Pages (Outlet)
+                </h3>
+                <div class="space-y-1.5 pl-1">
+                    <div class="flex items-center text-[10px] text-zinc-300"><i class="fa-solid fa-chart-pie w-4 text-zinc-500"></i> Dashboard</div>
+                    <div class="flex items-center text-[10px] text-zinc-300"><i class="fa-solid fa-map w-4 text-zinc-500"></i> LearningPath</div>
+                    <div class="flex items-center text-[10px] text-zinc-300"><i class="fa-solid fa-pen-nib w-4 text-zinc-500"></i> Practice</div>
+                    <div class="flex items-center text-[10px] text-zinc-300"><i class="fa-solid fa-laptop-code w-4 text-zinc-500"></i> MockExam</div>
+                </div>
+            </div>
+
+            <!-- AI 悬浮组件 -->
+            <div id="node-ai-component" class="tech-node node-ai rounded-xl p-3 border-l-4 border-l-pink-500 cursor-default relative overflow-hidden">
+                <div class="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-pink-500/10 to-transparent"></div>
+                <h3 class="font-bold text-zinc-100 text-xs flex items-center relative z-10">
+                    <i class="fa-solid fa-robot text-pink-400 mr-2"></i> AIAssistant.tsx
+                </h3>
+                <p class="text-[9px] text-zinc-400 mt-1 relative z-10">全局智能答疑悬浮窗</p>
+            </div>
+            
+            <div id="node-login" class="opacity-0 h-0"></div> <!-- 占位隐藏不重要的登录节点以节省空间 -->
+        </div>
+
+        <!-- Layer 5: AI Services (ModelScope) -->
+        <div class="zone-box p-5 flex flex-col justify-center space-y-6 bg-pink-900/5 border-pink-900/30" id="zone-ai">
+            <h2 class="text-[11px] font-bold text-pink-500 uppercase tracking-widest mb-6 flex items-center absolute top-5">
+                <i class="fa-solid fa-cloud-bolt mr-2"></i> AI & Cloud Services
+            </h2>
+            
+            <div id="node-modelscope" class="tech-node node-ai rounded-2xl p-5 border-pink-500/40 shadow-[0_0_40px_rgba(236,72,153,0.15)] cursor-default relative overflow-hidden">
+                <div class="absolute -right-6 -top-6 w-32 h-32 bg-pink-500/20 rounded-full blur-3xl"></div>
+                
+                <div class="flex items-center space-x-3 mb-4 relative z-10">
+                    <div class="w-12 h-12 rounded-xl bg-pink-500/20 flex items-center justify-center border border-pink-500/50 shadow-inner">
+                        <i class="fa-solid fa-wand-magic-sparkles text-pink-400 text-2xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-zinc-100 text-base">ModelScope API</h3>
+                        <div class="inline-flex items-center mt-1 bg-pink-500/20 px-1.5 py-0.5 rounded text-[9px] text-pink-300 font-medium border border-pink-500/30">
+                            <i class="fa-solid fa-gift mr-1"></i> 免费开发层 (Free Tier)
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-2 relative z-10">
+                    <p class="text-[10px] text-zinc-400 mb-2 leading-relaxed">提供统一接口规范接入多个顶尖开源/商用模型，用于题目解析与薄弱点讲解。</p>
+                    <div class="text-[11px] bg-zinc-900/90 px-3 py-2 rounded-lg border border-zinc-700/80 text-zinc-300 flex items-center shadow-sm">
+                        <i class="fa-solid fa-cube text-indigo-400 mr-2"></i> Qwen-Max (通义千问)
+                    </div>
+                    <div class="text-[11px] bg-zinc-900/90 px-3 py-2 rounded-lg border border-zinc-700/80 text-zinc-300 flex items-center shadow-sm">
+                        <i class="fa-solid fa-cube text-blue-400 mr-2"></i> DeepSeek-V3 / R1
+                    </div>
+                    <div class="text-[11px] bg-zinc-900/90 px-3 py-2 rounded-lg border border-zinc-700/80 text-zinc-300 flex items-center shadow-sm">
+                        <i class="fa-solid fa-layer-group text-purple-400 mr-2"></i> MiniMax / 其他开源模型
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- UI 组件库托盘 -->
+    <footer class="mt-8 z-10 flex justify-center">
+        <div id="node-ui" class="tech-node rounded-full px-8 py-3 flex items-center space-x-6 cursor-default inline-flex">
+            <span class="text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-r border-zinc-700 pr-6">Infrastructure</span>
+            <div class="flex items-center space-x-2">
+                <div class="w-5 h-5 rounded-full bg-cyan-500/20 flex items-center justify-center"><i class="fa-solid fa-wind text-cyan-400 text-[10px]"></i></div>
+                <span class="text-xs font-medium text-zinc-300">Tailwind CSS</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <div class="w-5 h-5 rounded-full bg-white flex items-center justify-center"><i class="fa-solid fa-cube text-black text-[10px]"></i></div>
+                <span class="text-xs font-medium text-zinc-300">Radix UI Components</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- 全局 SVG 连线层 -->
+    <svg id="svg-layer" class="absolute top-0 left-0 w-full h-full pointer-events-none z-0">
+        <!-- 滤镜与渐变定义 -->
+        <defs>
+            <linearGradient id="grad-blue" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.2" />
+                <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.8" />
+            </linearGradient>
+            <linearGradient id="grad-emerald" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#10b981" stop-opacity="0.8" />
+                <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.2" />
+            </linearGradient>
+            <linearGradient id="grad-pink" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#ec4899" stop-opacity="0.2" />
+                <stop offset="50%" stop-color="#ec4899" stop-opacity="0.8" />
+                <stop offset="100%" stop-color="#a855f7" stop-opacity="0.8" />
+            </linearGradient>
+            <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+            <filter id="glow-strong" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="5" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+        </defs>
+    </svg>
+
+    <!-- 动态绘制连线逻辑 -->
+    <script>
+        const svg = document.getElementById('svg-layer');
+
+        // 连接配置数组
+        const connections = [
+            // Data to State
+            { from: 'node-supabase', to: 'node-appcontext', color: 'url(#grad-emerald)', animated: true, reverse: true, label: '同步数据' },
+            { from: 'node-localstorage', to: 'node-appcontext', color: 'rgba(245, 158, 11, 0.4)', animated: false },
+            { from: 'node-mock', to: 'node-appcontext', color: 'rgba(113, 113, 122, 0.4)', animated: false },
+            
+            // App / Router to State/Views
+            { from: 'node-app', to: 'node-appcontext', color: 'rgba(168, 85, 247, 0.4)', animated: false },
+            { from: 'node-appcontext', to: 'node-router', color: 'url(#grad-blue)', animated: true, label: '状态注入' },
+            { from: 'node-router', to: 'node-layout', color: 'rgba(99, 102, 241, 0.5)', animated: true },
+            
+            // Layout to its nested conceptual nodes
+            { from: 'node-layout', to: 'node-pages', color: 'rgba(6, 182, 212, 0.5)', animated: true, label: 'Outlet渲染' },
+            { from: 'node-layout', to: 'node-ai-component', color: 'rgba(236, 72, 153, 0.3)', animated: false },
+            
+            // !!! THE AI HIGHLIGHT LINE !!!
+            { from: 'node-ai-component', to: 'node-modelscope', color: 'url(#grad-pink)', animated: true, label: 'LLM 接口调用 (ModelScope)', strongGlow: true },
+            
+            // UI to Views
+            { from: 'node-ui', to: 'node-layout', color: 'rgba(161, 161, 170, 0.2)', animated: false, type: 'bottom-up' },
+            { from: 'node-ui', to: 'node-pages', color: 'rgba(161, 161, 170, 0.2)', animated: false, type: 'bottom-up' }
+        ];
+
+        function drawLines() {
+            svg.innerHTML = svg.querySelector('defs').outerHTML; // 清理旧线条保留 defs
+
+            connections.forEach(conn => {
+                const el1 = document.getElementById(conn.from);
+                const el2 = document.getElementById(conn.to);
+                if (!el1 || !el2 || el1.offsetHeight === 0 || el2.offsetHeight === 0) return; // 忽略隐藏节点
+
+                const rect1 = el1.getBoundingClientRect();
+                const rect2 = el2.getBoundingClientRect();
+
+                let x1, y1, x2, y2, cp1x, cp1y, cp2x, cp2y;
+
+                if (conn.type === 'bottom-up') {
+                    // 从下往上连
+                    x1 = rect1.left + rect1.width / 2;
+                    y1 = rect1.top;
+                    x2 = rect2.left + rect2.width / 2;
+                    y2 = rect2.bottom;
+                    cp1x = x1; cp1y = y1 - 40;
+                    cp2x = x2; cp2y = y2 + 40;
+                } else {
+                    // 默认从左往右连
+                    x1 = rect1.right;
+                    y1 = rect1.top + rect1.height / 2;
+                    x2 = rect2.left;
+                    y2 = rect2.top + rect2.height / 2;
+                    
+                    const offset = Math.max(Math.abs(x2 - x1) / 2, 40);
+                    cp1x = x1 + offset;
+                    cp1y = y1;
+                    cp2x = x2 - offset;
+                    cp2y = y2;
+                }
+
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                const d = `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`;
+                
+                path.setAttribute('d', d);
+                path.setAttribute('fill', 'none');
+                path.setAttribute('stroke', conn.color);
+                path.setAttribute('stroke-width', conn.strongGlow ? '3' : '2');
+                
+                if (conn.animated) {
+                    path.setAttribute('class', conn.reverse ? 'animated-line-reverse' : 'animated-line');
+                    path.setAttribute('filter', conn.strongGlow ? 'url(#glow-strong)' : 'url(#glow)');
+                }
+
+                svg.appendChild(path);
+
+                // 添加文字标签
+                if (conn.label) {
+                    const textX = (x1 + x2) / 2;
+                    const textY = (y1 + y2) / 2 - 10;
+                    const textWidth = conn.label.length * 8 + 20;
+
+                    const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    bgRect.setAttribute('x', textX - textWidth / 2);
+                    bgRect.setAttribute('y', textY - 12);
+                    bgRect.setAttribute('width', textWidth);
+                    bgRect.setAttribute('height', '18');
+                    bgRect.setAttribute('fill', '#09090b');
+                    bgRect.setAttribute('rx', '4');
+                    // 为AI专属线条设置特殊的发光背景标签
+                    if(conn.strongGlow) {
+                        bgRect.setAttribute('stroke', '#ec4899');
+                        bgRect.setAttribute('stroke-width', '0.5');
+                    }
+                    svg.appendChild(bgRect);
+
+                    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    text.setAttribute('x', textX);
+                    text.setAttribute('y', textY + 1);
+                    text.setAttribute('class', 'edge-label');
+                    if(conn.strongGlow) text.style.fill = '#f472b6'; // 标签字变成粉色
+                    text.textContent = conn.label;
+                    svg.appendChild(text);
+                }
+            });
+        }
+
+        window.addEventListener('load', drawLines);
+        window.addEventListener('resize', drawLines);
+        // 为了确保字体或特殊效果加载后线条不错位
+        setTimeout(drawLines, 500);
+    </script>
+</body>
+</html>
