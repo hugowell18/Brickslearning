@@ -3,6 +3,11 @@ import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import * as kv from "./kv_store.tsx";
 const app = new Hono();
+const ALLOWED_MODELS = new Set([
+  "Qwen/Qwen3.5-27B",
+  "deepseek-ai/DeepSeek-V3.2",
+  "MiniMax/MiniMax-M2.5",
+]);
 
 function pickTextFromUnknown(value: any): string {
   if (typeof value === "string") return value.trim();
@@ -74,6 +79,7 @@ const handleAiChat = async (c: any) => {
     const body = await c.req.json().catch(() => ({}));
     const message = String(body?.message || "").trim();
     const history = Array.isArray(body?.history) ? body.history : [];
+    const requestedModel = String(body?.model || "").trim();
 
     if (!message) {
       return c.json({ error: "message is required" }, 400);
@@ -123,6 +129,20 @@ const handleAiChat = async (c: any) => {
       { role: "user", content: message.slice(0, 4000) },
     ];
 
+    const finalModel = requestedModel
+      ? (ALLOWED_MODELS.has(requestedModel) ? requestedModel : "")
+      : providerConfig.model;
+    if (!finalModel) {
+      return c.json(
+        {
+          error: "invalid_model",
+          detail: "Unsupported model",
+          allowed: Array.from(ALLOWED_MODELS),
+        },
+        400,
+      );
+    }
+
     const resp = await fetch(`${providerConfig.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -130,7 +150,7 @@ const handleAiChat = async (c: any) => {
         Authorization: `Bearer ${providerConfig.apiKey}`,
       },
       body: JSON.stringify({
-        model: providerConfig.model,
+        model: finalModel,
         messages,
         temperature: 0.6,
       }),
@@ -144,6 +164,7 @@ const handleAiChat = async (c: any) => {
           status: resp.status,
           detail: data?.error?.message || data?.message || "request failed",
           provider: providerConfig.provider,
+          model: finalModel,
         },
         502,
       );
@@ -156,7 +177,7 @@ const handleAiChat = async (c: any) => {
           error: "empty_model_response",
           detail: "Provider returned no parseable answer content",
           provider: providerConfig.provider,
-          model: providerConfig.model,
+          model: finalModel,
           raw_keys: Object.keys(data || {}),
         },
         502,

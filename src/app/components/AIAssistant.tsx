@@ -3,9 +3,20 @@ import { Bot, Loader2, Send, X } from 'lucide-react';
 import { askAiAssistant } from '../../lib/supabaseClient';
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
+const MODEL_OPTIONS = [
+  'Qwen/Qwen3.5-27B',
+  'deepseek-ai/DeepSeek-V3.2',
+  'MiniMax/MiniMax-M2.5',
+] as const;
+const MODEL_STORAGE_KEY = 'db_ai_model';
 
 export default function AIAssistant() {
   const [isOpen, setIsOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    if (typeof window === 'undefined') return MODEL_OPTIONS[0];
+    const saved = (window.localStorage.getItem(MODEL_STORAGE_KEY) || '').trim();
+    return MODEL_OPTIONS.includes(saved as any) ? saved : MODEL_OPTIONS[0];
+  });
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
@@ -32,6 +43,7 @@ export default function AIAssistant() {
       const answer = await askAiAssistant(
         text,
         history.filter((m) => m.role === 'user' || m.role === 'assistant'),
+        selectedModel,
       );
       setMessages((prev) => [...prev, { role: 'assistant', content: answer }]);
     } catch (e) {
@@ -96,6 +108,29 @@ export default function AIAssistant() {
           </div>
 
           <div className="p-4 border-t border-gray-200 space-y-2">
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-600 shrink-0">模型</label>
+              <select
+                value={selectedModel}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSelectedModel(v);
+                  try {
+                    window.localStorage.setItem(MODEL_STORAGE_KEY, v);
+                  } catch {
+                    // ignore
+                  }
+                }}
+                className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
+                disabled={loading}
+              >
+                {MODEL_OPTIONS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
             {error && <div className="text-xs text-red-600">{error}</div>}
             <div className="flex gap-2">
               <input
@@ -127,4 +162,3 @@ export default function AIAssistant() {
     </>
   );
 }
-

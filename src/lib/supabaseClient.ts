@@ -230,7 +230,7 @@ function getAiChatEndpoint(): string {
   return `${supabaseUrl}/functions/v1/server`;
 }
 
-export async function askAiAssistant(message: string, history: AiChatMessage[] = []): Promise<string> {
+export async function askAiAssistant(message: string, history: AiChatMessage[] = [], model?: string): Promise<string> {
   const endpoint = getAiChatEndpoint();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -251,7 +251,7 @@ export async function askAiAssistant(message: string, history: AiChatMessage[] =
     // send both formats for compatibility:
     // 1) custom proxy: { message, history }
     // 2) direct OpenAI-compatible proxy: { messages }
-    body: JSON.stringify({ message, history: normalizedHistory, messages }),
+    body: JSON.stringify({ message, history: normalizedHistory, messages, model }),
   });
 
   const data = await resp.json().catch(() => ({}));
