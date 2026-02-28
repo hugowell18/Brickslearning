@@ -220,3 +220,70 @@ export async function uploadAvatarImages(
     avatar_updated_at,
   };
 }
+
+export type AiChatMessage = { role: 'user' | 'assistant'; content: string };
+
+function getAiChatEndpoint(): string {
+  const custom = (import.meta.env.VITE_AI_CHAT_ENDPOINT || '').trim();
+  if (custom) return custom;
+  if (!supabaseUrl) throw new Error('VITE_SUPABASE_URL is not configured');
+  return `${supabaseUrl}/functions/v1/server`;
+}
+
+export async function askAiAssistant(message: string, history: AiChatMessage[] = []): Promise<string> {
+  const endpoint = getAiChatEndpoint();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (supabaseAnonKey) {
+    headers.apikey = supabaseAnonKey;
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+  }
+
+  const normalizedHistory = history
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    .slice(-10);
+  const messages = [...normalizedHistory, { role: 'user', content: message.slice(0, 4000) }];
+
+  const resp = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    // send both formats for compatibility:
+    // 1) custom proxy: { message, history }
+    // 2) direct OpenAI-compatible proxy: { messages }
+    body: JSON.stringify({ message, history: normalizedHistory, messages }),
+  });
+
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw new Error(data?.detail || data?.error || `AI request failed (${resp.status})`);
+  }
+
+  const extractText = (v: any): string => {
+    if (typeof v === 'string') return v.trim();
+    if (Array.isArray(v)) {
+      return v
+        .map((x) => {
+          if (typeof x === 'string') return x;
+          if (x && typeof x === 'object') return String(x.text || x.content || x.value || '');
+          return '';
+        })
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+    }
+    if (v && typeof v === 'object') return String(v.text || v.content || v.value || '').trim();
+    return '';
+  };
+
+  const answer = extractText(data?.answer) ||
+    extractText(data?.choices?.[0]?.message?.content) ||
+    extractText(data?.choices?.[0]?.message?.reasoning_content) ||
+    extractText(data?.choices?.[0]?.text) ||
+    extractText(data?.output_text) ||
+    extractText(data?.output?.text) ||
+    extractText(data?.text);
+
+  if (!answer) throw new Error('AI returned empty response');
+  return answer;
+}
