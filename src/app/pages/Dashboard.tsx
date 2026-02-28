@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { ArrowRight } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useApp } from '../../context/AppContext';
 import { getJson } from '../../lib/supabaseClient';
@@ -10,6 +11,7 @@ import {
   getWeekStartMonday,
   toOneDecimal,
 } from '../utils/completedMetaMetrics';
+import { extractWrongQuestionIds } from '../utils/wrongReview';
 
 type AttemptEvent = { uid: string; correct: boolean; at: string };
 type MockExamHistory = { id?: string; date?: string; submittedAt?: string };
@@ -29,6 +31,7 @@ export default function Dashboard() {
   const { user, modules, cloudState } = useApp();
   const [completedMeta, setCompletedMeta] = useState<CompletedMeta>({});
   const [attemptEvents, setAttemptEvents] = useState<AttemptEvent[]>([]);
+  const [questionStatus, setQuestionStatus] = useState<Record<string, 'correct' | 'incorrect'>>({});
   const [moduleCompleteMeta, setModuleCompleteMeta] = useState<Record<string, string>>({});
   const [mockExamHistory, setMockExamHistory] = useState<MockExamHistory[]>([]);
 
@@ -38,21 +41,24 @@ export default function Dashboard() {
 
     const load = async () => {
       try {
-        const [qMeta, attempts, moduleMeta, exams] = await Promise.all([
+        const [qMeta, attempts, qStatus, moduleMeta, exams] = await Promise.all([
           getJson<CompletedMeta>(`db_progress:completed_meta:${user.id}`, {}),
           getJson<AttemptEvent[]>(`db_progress:attempt_events:${user.id}`, []),
+          getJson<Record<string, 'correct' | 'incorrect'>>(`db_progress:question_status:${user.id}`, {}),
           getJson<Record<string, string>>(`db_progress:module_complete_meta:${user.id}`, {}),
           getJson<MockExamHistory[]>(`db_mock_exam_history:${user.id}`, []),
         ]);
         if (cancelled) return;
         setCompletedMeta(qMeta || {});
         setAttemptEvents(Array.isArray(attempts) ? attempts : []);
+        setQuestionStatus(qStatus || {});
         setModuleCompleteMeta(moduleMeta || {});
         setMockExamHistory(Array.isArray(exams) ? exams : []);
       } catch {
         if (cancelled) return;
         setCompletedMeta({});
         setAttemptEvents([]);
+        setQuestionStatus({});
         setModuleCompleteMeta({});
         setMockExamHistory([]);
       }
@@ -73,6 +79,19 @@ export default function Dashboard() {
     [],
   );
   const allIds = useMemo(() => new Set(questionBank.map((q) => q.uid)), []);
+  const orderedQuestionIds = useMemo(() => questionBank.map((q) => q.uid), []);
+  const wrongQuestionIds = useMemo(
+    () => extractWrongQuestionIds(questionStatus, orderedQuestionIds),
+    [questionStatus, orderedQuestionIds],
+  );
+  const wrongAnalystQuestionIds = useMemo(
+    () => wrongQuestionIds.filter((uid) => analystIds.has(uid)),
+    [wrongQuestionIds, analystIds],
+  );
+  const wrongEngineerQuestionIds = useMemo(
+    () => wrongQuestionIds.filter((uid) => engineerIds.has(uid)),
+    [wrongQuestionIds, engineerIds],
+  );
 
   const completedQuestionIds = useMemo(() => Object.keys(completedMeta), [completedMeta]);
 
@@ -261,6 +280,46 @@ export default function Dashboard() {
           </ResponsiveContainer>
         </div>
       </div>
+        {/* Quick Actions */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">今日学习建议</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <QuickActionCard
+            title="继续学习"
+            description="SQL Warehouses & Query Optimization"
+            link="/learning-path"
+            color="orange"
+          />
+          <QuickActionCard
+            title="Analyst 错题复习"
+            description={
+              wrongAnalystQuestionIds.length > 0
+                ? `复习 ${wrongAnalystQuestionIds.length} 道错题`
+                : 'Data Analyst 当前没有错题'
+            }
+            link="/practice"
+            state={wrongAnalystQuestionIds.length > 0 ? { mode: 'wrong-review', uids: wrongAnalystQuestionIds } : undefined}
+            color="red"
+          />
+          <QuickActionCard
+            title="Engineer 错题复习"
+            description={
+              wrongEngineerQuestionIds.length > 0
+                ? `复习 ${wrongEngineerQuestionIds.length} 道错题`
+                : 'Data Engineer 当前没有错题'
+            }
+            link="/practice"
+            state={wrongEngineerQuestionIds.length > 0 ? { mode: 'wrong-review', uids: wrongEngineerQuestionIds } : undefined}
+            color="purple"
+          />
+          <QuickActionCard
+            title="模拟考试"
+            description="Data Analyst 全真模拟"
+            link="/mock-exam"
+            color="green"
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -277,5 +336,29 @@ function StatCard({ title, value, change }: { title: string; value: string; chan
         <span className="text-gray-500 ml-1">vs 上周</span>
       </p>
     </div>
+  );
+}
+function QuickActionCard({ title, description, link, state, color }) {
+  const colorClasses = {
+    orange: 'bg-orange-50 border-orange-200 hover:border-orange-400',
+    red: 'bg-red-50 border-red-200 hover:border-red-400',
+    purple: 'bg-purple-50 border-purple-200 hover:border-purple-400',
+    green: 'bg-green-50 border-green-200 hover:border-green-400',
+  };
+
+  return (
+    <Link
+      to={link}
+      state={state}
+      className={`${colorClasses[color]} border-2 rounded-lg p-4 transition-all group cursor-pointer`}
+    >
+      <div className="flex items-start justify-between">
+        <div>
+          <h4 className="font-semibold text-gray-900">{title}</h4>
+          <p className="text-sm text-gray-600 mt-1">{description}</p>
+        </div>
+        <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-gray-900 transition-colors" />
+      </div>
+    </Link>
   );
 }

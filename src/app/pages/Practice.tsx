@@ -1,11 +1,13 @@
-﻿import { useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, ChevronLeft, BookmarkPlus, Bookmark } from 'lucide-react';
 import { questions } from '../data/mockData';
 import { useApp } from '../../context/AppContext';
+import { useLocation, useNavigate } from 'react-router';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Button } from '../components/ui/button';
 import { getPracticeDotClassName, getPracticeDotState } from './practiceProgressState';
 import { shouldMarkCompletedOnNext, shouldMarkCompletedOnSubmit } from './practiceCompletionPolicy';
+import { normalizeReviewRequestIds } from '../utils/wrongReview';
 
 const REQUIRE_MULTI_CHOICE_SELECTION = true;
 
@@ -19,6 +21,7 @@ export default function Practice() {
   const [practiceState, setPracticeState] = useState<PracticeState>('selection');
   const [progressTabOpen, setProgressTabOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [reviewSessionUids, setReviewSessionUids] = useState<string[] | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<string[]>([]);
   const [showExplanation, setShowExplanation] = useState(false);
@@ -26,6 +29,9 @@ export default function Practice() {
   const [jumpValue, setJumpValue] = useState('');
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [entryNotice, setEntryNotice] = useState('');
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const {
     updateProgress,
@@ -40,7 +46,20 @@ export default function Practice() {
   } = useApp();
 
   const categories = Array.from(new Set(questions.map((q) => q.category)));
-  const filteredQuestions = selectedCategory ? questions.filter((q) => q.category === selectedCategory) : [];
+  const questionMap = useMemo(() => new Map(questions.map((q) => [q.uid, q])), []);
+  const allQuestionIds = useMemo(() => new Set(questions.map((q) => q.uid)), []);
+  const isReviewMode = !!reviewSessionUids;
+  const filteredQuestions = useMemo(() => {
+    if (reviewSessionUids) {
+      const sessionQuestions: typeof questions = [];
+      for (const uid of reviewSessionUids) {
+        const q = questionMap.get(uid);
+        if (q) sessionQuestions.push(q);
+      }
+      return sessionQuestions;
+    }
+    return selectedCategory ? questions.filter((q) => q.category === selectedCategory) : [];
+  }, [reviewSessionUids, questionMap, selectedCategory]);
   const currentQuestion = filteredQuestions[currentQuestionIndex];
   const completedCount = filteredQuestions.filter((q) => completedQuestions.includes(q.uid)).length;
   const completionPct = filteredQuestions.length > 0 ? Math.round((completedCount / filteredQuestions.length) * 100) : 0;
@@ -52,6 +71,27 @@ export default function Practice() {
       .split('')
       .filter((ch) => ch >= 'A' && ch <= 'Z');
   const isMultiChoice = !!currentQuestion && parseAnswerLabels(currentQuestion.ans).length > 1;
+
+  useEffect(() => {
+    if (practiceState !== 'selection') return;
+    const state = location.state as { mode?: string; uids?: string[] } | null;
+    if (!state || state.mode !== 'wrong-review') return;
+    const normalizedUids = normalizeReviewRequestIds(state.uids, allQuestionIds);
+    if (normalizedUids.length > 0) {
+      setReviewSessionUids(normalizedUids);
+      setSelectedCategory('');
+      setPracticeState('in-session');
+      setProgressTabOpen(false);
+      setCurrentQuestionIndex(0);
+      setSelectedAnswers([]);
+      setSubmitError('');
+      setShowExplanation(false);
+      setEntryNotice('');
+    } else {
+      setEntryNotice('当前没有可复习的错题，已返回普通练习入口。');
+    }
+    navigate(location.pathname, { replace: true, state: null });
+  }, [practiceState, location.state, location.pathname, navigate, allQuestionIds]);
 
   const handleSubmit = () => {
     if (!currentQuestion) return;
@@ -132,6 +172,7 @@ export default function Practice() {
     );
     setClearDialogOpen(false);
     setPracticeState('selection');
+    setReviewSessionUids(null);
     setProgressTabOpen(false);
   };
 
@@ -148,6 +189,11 @@ export default function Practice() {
             云端同步异常：{cloudState.message || '严格一致模式下，写操作已被阻止。'}
           </div>
         )}
+        {entryNotice && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-800 p-4 text-sm">
+            {entryNotice}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           {categories.map((category) => (
@@ -155,6 +201,8 @@ export default function Practice() {
               key={category}
               onClick={() => {
                 setSelectedCategory(category);
+                setReviewSessionUids(null);
+                setEntryNotice('');
                 setPracticeState('in-session');
                 setProgressTabOpen(false);
                 setCurrentQuestionIndex(0);
@@ -193,10 +241,29 @@ export default function Practice() {
       <div className="flex justify-between items-start gap-3">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">题库练习</h1>
-          <p className="text-gray-600 mt-1">已完成 {completedCount} / {filteredQuestions.length}</p>
+          <p className="text-gray-600 mt-1">
+            {isReviewMode ? `错题会话模式 · 共 ${filteredQuestions.length} 题` : `已完成 ${completedCount} / ${filteredQuestions.length}`}
+          </p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setPracticeState('selection')} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-bold transition-all">
+          {isReviewMode && (
+            <button
+              onClick={() => {
+                setPracticeState('selection');
+                setReviewSessionUids(null);
+              }}
+              className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded text-xs font-bold transition-all"
+            >
+              退出错题模式
+            </button>
+          )}
+          <button
+            onClick={() => {
+              setPracticeState('selection');
+              setReviewSessionUids(null);
+            }}
+            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-bold transition-all"
+          >
             返回分类
           </button>
           <button
@@ -393,7 +460,7 @@ export default function Practice() {
               </button>
             </div>
             <div className="mt-3 text-xs text-slate-600">
-              <div>分类：<span className="font-semibold text-slate-800">{selectedCategory}</span></div>
+              <div>分类：<span className="font-semibold text-slate-800">{isReviewMode ? '错题复习' : selectedCategory}</span></div>
               <div>进度：<span className="font-semibold text-slate-800">{completionPct}%</span></div>
               <div>已完成 {completedCount} / {filteredQuestions.length}</div>
             </div>
@@ -458,3 +525,4 @@ export default function Practice() {
     </div>
   );
 }
+

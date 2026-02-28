@@ -66,7 +66,7 @@ export default function Login() {
     {
       icon: BarChart3,
       title: '学习数据追踪',
-      description: '可视化进度分析，智能弱项识别',
+      description: '可视化进度分析，错题专项练习',
       image: 'https://images.unsplash.com/photo-1748609160056-7b95f30041f0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxkYXRhJTIwYW5hbHl0aWNzJTIwZGFzaGJvYXJkJTIwbW9kZXJuJTIwd29ya3NwYWNlfGVufDF8fHx8MTc3MjI0NTIwOXww&ixlib=rb-4.1.0&q=80&w=1080',
     },
     {
