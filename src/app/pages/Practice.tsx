@@ -7,6 +7,8 @@ import { Button } from '../components/ui/button';
 import { getPracticeDotClassName, getPracticeDotState } from './practiceProgressState';
 import { shouldMarkCompletedOnNext, shouldMarkCompletedOnSubmit } from './practiceCompletionPolicy';
 
+const REQUIRE_MULTI_CHOICE_SELECTION = true;
+
 const CATEGORY_MODULE_MAP: Record<string, string> = {
   'Data Analyst': 'ma1',
   'Data Engineer': 'me1',
@@ -18,11 +20,12 @@ export default function Practice() {
   const [progressTabOpen, setProgressTabOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  const [selectedAnswers, setSelectedAnswers] = useState<string[]>([]);
   const [showExplanation, setShowExplanation] = useState(false);
   const [bookmarked, setBookmarked] = useState<string[]>([]);
   const [jumpValue, setJumpValue] = useState('');
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   const {
     updateProgress,
@@ -42,24 +45,32 @@ export default function Practice() {
   const completedCount = filteredQuestions.filter((q) => completedQuestions.includes(q.uid)).length;
   const completionPct = filteredQuestions.length > 0 ? Math.round((completedCount / filteredQuestions.length) * 100) : 0;
 
-  const getCorrectAnswerIndex = () => {
-    if (!currentQuestion) return -1;
-    return currentQuestion.ans.charCodeAt(0) - 65;
-  };
-
   const getOptionLabel = (index: number) => String.fromCharCode(65 + index);
+  const parseAnswerLabels = (ans?: string) =>
+    (ans || '')
+      .toUpperCase()
+      .split('')
+      .filter((ch) => ch >= 'A' && ch <= 'Z');
+  const isMultiChoice = !!currentQuestion && parseAnswerLabels(currentQuestion.ans).length > 1;
 
   const handleSubmit = () => {
     if (!currentQuestion) return;
+    if (REQUIRE_MULTI_CHOICE_SELECTION && isMultiChoice && selectedAnswers.length === 0) {
+      setSubmitError('多选题至少选择 1 项后再提交。');
+      return;
+    }
+    setSubmitError('');
     setShowExplanation(true);
     if (shouldMarkCompletedOnSubmit()) {
       markQuestionCompleted(currentQuestion.uid);
     }
     recordQuestionReview(currentQuestion.uid);
 
-    if (selectedAnswer) {
-      const correctAnswer = getOptionLabel(getCorrectAnswerIndex());
-      const isCorrect = selectedAnswer === correctAnswer;
+    if (selectedAnswers.length > 0) {
+      const expected = new Set(parseAnswerLabels(currentQuestion.ans));
+      const selected = new Set(selectedAnswers);
+      const isCorrect =
+        expected.size === selected.size && [...expected].every((label) => selected.has(label));
       setQuestionResult(currentQuestion.uid, isCorrect);
       recordQuestionAttempt(currentQuestion.uid, isCorrect);
     }
@@ -71,7 +82,8 @@ export default function Practice() {
     const isLast = currentQuestionIndex === filteredQuestions.length - 1;
 
     setCurrentQuestionIndex(nextIndex);
-    setSelectedAnswer(null);
+    setSelectedAnswers([]);
+    setSubmitError('');
     setShowExplanation(false);
 
     if (isLast && selectedCategory) {
@@ -88,7 +100,8 @@ export default function Practice() {
     const num = parseInt(jumpValue, 10);
     if (!Number.isNaN(num) && num >= 1 && num <= filteredQuestions.length) {
       setCurrentQuestionIndex(num - 1);
-      setSelectedAnswer(null);
+      setSelectedAnswers([]);
+      setSubmitError('');
       setShowExplanation(false);
       setJumpValue('');
     }
@@ -97,7 +110,8 @@ export default function Practice() {
   const handlePrevious = () => {
     if (filteredQuestions.length === 0) return;
     setCurrentQuestionIndex((prev) => (prev - 1 + filteredQuestions.length) % filteredQuestions.length);
-    setSelectedAnswer(null);
+    setSelectedAnswers([]);
+    setSubmitError('');
     setShowExplanation(false);
   };
 
@@ -144,7 +158,8 @@ export default function Practice() {
                 setPracticeState('in-session');
                 setProgressTabOpen(false);
                 setCurrentQuestionIndex(0);
-                setSelectedAnswer(null);
+                setSelectedAnswers([]);
+                setSubmitError('');
                 setShowExplanation(false);
                 const modId = CATEGORY_MODULE_MAP[category];
                 if (modId) updateProgress(modId, 'in-progress');
@@ -170,7 +185,8 @@ export default function Practice() {
     );
   }
 
-  const correctAnswerIndex = getCorrectAnswerIndex();
+  const correctAnswerLabels = parseAnswerLabels(currentQuestion.ans);
+  const correctAnswerSet = new Set(correctAnswerLabels);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -232,6 +248,11 @@ export default function Practice() {
         <div className="mb-4">
           <div className="text-sm font-semibold text-blue-600 mb-2">{currentQuestion.category}</div>
           <div className="text-gray-700 mb-2">{currentQuestion.q}</div>
+          {isMultiChoice && (
+            <div className="inline-flex items-center rounded bg-orange-50 text-orange-700 text-xs font-semibold px-2 py-1">
+              多选题（可选择多个答案）
+            </div>
+          )}
         </div>
 
         {currentQuestion.img && (
@@ -249,13 +270,25 @@ export default function Practice() {
         <div className="space-y-3 mb-6">
           {currentQuestion.opts.map((option, index) => {
             const optionLabel = getOptionLabel(index);
-            const isSelected = selectedAnswer === optionLabel;
-            const isCorrect = index === correctAnswerIndex;
+            const isSelected = selectedAnswers.includes(optionLabel);
+            const isCorrect = correctAnswerSet.has(optionLabel);
 
             return (
               <button
                 key={index}
-                onClick={() => !showExplanation && setSelectedAnswer(optionLabel)}
+                onClick={() => {
+                  if (showExplanation) return;
+                  setSubmitError('');
+                  if (isMultiChoice) {
+                    setSelectedAnswers((prev) =>
+                      prev.includes(optionLabel)
+                        ? prev.filter((v) => v !== optionLabel)
+                        : [...prev, optionLabel],
+                    );
+                    return;
+                  }
+                  setSelectedAnswers([optionLabel]);
+                }}
                 disabled={showExplanation}
                 className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
                   showExplanation
@@ -282,10 +315,16 @@ export default function Practice() {
           })}
         </div>
 
+        {submitError && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm px-3 py-2">
+            {submitError}
+          </div>
+        )}
+
         {showExplanation && (
           <div className="space-y-4 mb-6">
             <div className="bg-green-50 border border-green-200 rounded p-4">
-              <div className="font-semibold text-green-900">Correct Answer: {getOptionLabel(correctAnswerIndex)}</div>
+              <div className="font-semibold text-green-900">Correct Answer: {correctAnswerLabels.join(', ')}</div>
             </div>
 
             {currentQuestion.exp_link && (
@@ -373,7 +412,8 @@ export default function Practice() {
                     key={q.uid}
                     onClick={() => {
                       setCurrentQuestionIndex(idx);
-                      setSelectedAnswer(null);
+                      setSelectedAnswers([]);
+                      setSubmitError('');
                       setShowExplanation(false);
                       setProgressTabOpen(false);
                     }}

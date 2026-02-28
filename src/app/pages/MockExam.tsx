@@ -24,7 +24,7 @@ type WrongQuestion = {
   q_zh?: string;
   opts: string[];
   correct: string;
-  selected?: string;
+  selected?: string[];
   exp_zh?: string;
   exp_link?: string;
   img?: string | string[];
@@ -48,6 +48,7 @@ type ExamResult = {
 
 const EXAM_TOTAL = 45;
 const EXAM_SECONDS = 90 * 60;
+const REQUIRE_MULTI_CHOICE_SELECTION = true;
 
 function shuffle<T>(arr: T[]) {
   const next = [...arr];
@@ -60,6 +61,13 @@ function shuffle<T>(arr: T[]) {
 
 function optionLabel(index: number) {
   return String.fromCharCode(65 + index);
+}
+
+function parseAnswerLabels(ans?: string) {
+  return (ans || '')
+    .toUpperCase()
+    .split('')
+    .filter((ch) => ch >= 'A' && ch <= 'Z');
 }
 
 function isImageValue(v: string) {
@@ -300,10 +308,11 @@ function ExamInProgress({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [answers, setAnswers] = useState<Record<number, string[]>>({});
   const [timeLeft, setTimeLeft] = useState(EXAM_SECONDS);
+  const [submitError, setSubmitError] = useState('');
 
-  const answersRef = useRef<Record<number, string>>({});
+  const answersRef = useRef<Record<number, string[]>>({});
   const questionsRef = useRef<ExamQuestion[]>([]);
 
   const examQuestions = useMemo(() => {
@@ -320,11 +329,12 @@ function ExamInProgress({
   }, [answers]);
 
   const currentQuestion = examQuestions[currentIndex];
-  const answeredCount = Object.keys(answers).length;
+  const answeredCount = Object.values(answers).filter((arr) => Array.isArray(arr) && arr.length > 0).length;
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
+  const currentIsMultiChoice = parseAnswerLabels(currentQuestion.ans).length > 1;
 
-  const buildResult = (finalAnswers: Record<number, string>, finalTimeLeft: number): ExamResult => {
+  const buildResult = (finalAnswers: Record<number, string[]>, finalTimeLeft: number): ExamResult => {
     const wrongQuestions: WrongQuestion[] = [];
     const weaknessMap = new Map<string, { total: number; wrong: number }>();
 
@@ -335,8 +345,12 @@ function ExamInProgress({
       const stat = weaknessMap.get(topic) ?? { total: 0, wrong: 0 };
       stat.total += 1;
 
-      const selected = finalAnswers[idx];
-      if (selected === q.ans) {
+      const selected = finalAnswers[idx] || [];
+      const expected = new Set(parseAnswerLabels(q.ans));
+      const selectedSet = new Set(selected);
+      const isCorrect =
+        expected.size === selectedSet.size && [...expected].every((label) => selectedSet.has(label));
+      if (isCorrect) {
         correctCount += 1;
       } else {
         stat.wrong += 1;
@@ -399,6 +413,18 @@ function ExamInProgress({
   }, []);
 
   const submit = () => {
+    if (REQUIRE_MULTI_CHOICE_SELECTION) {
+      const missingIdx = examQuestions.findIndex(
+        (q, idx) => parseAnswerLabels(q.ans).length > 1 && (!answers[idx] || answers[idx].length === 0),
+      );
+      if (missingIdx >= 0) {
+        setCurrentIndex(missingIdx);
+        setSidebarOpen(true);
+        setSubmitError(`第 ${missingIdx + 1} 题为多选题，请至少选择 1 项后再提交。`);
+        return;
+      }
+    }
+    setSubmitError('');
     const result = buildResult(answers, timeLeft);
     onFinish(result);
   };
@@ -451,6 +477,11 @@ function ExamInProgress({
             </div>
 
             <h2 className="text-lg font-bold text-slate-800 leading-snug mb-4">{currentQuestion.q}</h2>
+            {currentIsMultiChoice ? (
+              <div className="mb-3 inline-flex items-center rounded bg-orange-50 text-orange-700 text-xs font-semibold px-2 py-1">
+                多选题（可选择多个答案）
+              </div>
+            ) : null}
 
             {normalizeImgs(currentQuestion.img).length > 0 ? (
               <div className="mb-4 space-y-3">
@@ -464,12 +495,24 @@ function ExamInProgress({
           <div className="grid gap-3">
             {currentQuestion.opts.map((opt, i) => {
               const label = optionLabel(i);
-              const selected = answers[currentIndex] === label;
+              const selected = (answers[currentIndex] || []).includes(label);
 
               return (
                 <button
                   key={`${currentQuestion.uid}_${label}`}
-                  onClick={() => setAnswers((prev) => ({ ...prev, [currentIndex]: label }))}
+                  onClick={() =>
+                    setAnswers((prev) => {
+                      setSubmitError('');
+                      const current = prev[currentIndex] || [];
+                      if (currentIsMultiChoice) {
+                        const next = current.includes(label)
+                          ? current.filter((v) => v !== label)
+                          : [...current, label];
+                        return { ...prev, [currentIndex]: next };
+                      }
+                      return { ...prev, [currentIndex]: [label] };
+                    })
+                  }
                   className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
                     selected
                       ? 'border-[#FF3621] bg-[#fff1f0]'
@@ -491,25 +534,32 @@ function ExamInProgress({
         </div>
       </div>
 
-      <div className="flex gap-3">
-        <button
-          onClick={() => setCurrentIndex((v) => Math.max(v - 1, 0))}
-          className="flex-1 py-3 bg-white border border-slate-200 rounded-xl font-bold text-sm transition-all hover:bg-slate-50 flex items-center justify-center gap-2"
-        >
-          <ChevronLeft className="w-4 h-4" /> PREV
-        </button>
-        <button
-          onClick={() => setCurrentIndex((v) => Math.min(v + 1, EXAM_TOTAL - 1))}
-          className="flex-1 py-3 bg-[#1b3139] text-white rounded-xl font-bold text-sm transition-all hover:bg-slate-700 flex items-center justify-center gap-2"
-        >
-          NEXT <ChevronRight className="w-4 h-4" />
-        </button>
-        <button
-          onClick={submit}
-          className="flex-1 py-3 bg-[#FF3621] hover:bg-red-600 text-white rounded-xl font-bold text-sm"
-        >
-          SUBMIT
-        </button>
+      <div className="space-y-3">
+        {submitError ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm px-3 py-3">
+            {submitError}
+          </div>
+        ) : null}
+        <div className="flex gap-3">
+          <button
+            onClick={() => setCurrentIndex((v) => Math.max(v - 1, 0))}
+            className="flex-1 py-3 bg-white border border-slate-200 rounded-xl font-bold text-sm transition-all hover:bg-slate-50 flex items-center justify-center gap-2"
+          >
+            <ChevronLeft className="w-4 h-4" /> PREV
+          </button>
+          <button
+            onClick={() => setCurrentIndex((v) => Math.min(v + 1, EXAM_TOTAL - 1))}
+            className="flex-1 py-3 bg-[#1b3139] text-white rounded-xl font-bold text-sm transition-all hover:bg-slate-700 flex items-center justify-center gap-2"
+          >
+            NEXT <ChevronRight className="w-4 h-4" />
+          </button>
+          <button
+            onClick={submit}
+            className="flex-1 py-3 bg-[#FF3621] hover:bg-red-600 text-white rounded-xl font-bold text-sm"
+          >
+            SUBMIT
+          </button>
+        </div>
       </div>
 
       <aside
@@ -535,7 +585,7 @@ function ExamInProgress({
                     setSidebarOpen(false);
                   }}
                   className={`h-8 rounded-md border text-xs font-bold transition-colors ${
-                    answers[idx]
+                    answers[idx] && answers[idx].length > 0
                       ? 'bg-emerald-500 text-white border-emerald-500'
                       : 'bg-white text-slate-500 border-slate-300'
                   } ${idx === currentIndex ? 'ring-2 ring-[#FF3621] ring-offset-1' : 'hover:border-slate-400'}`}
@@ -669,8 +719,8 @@ function ExamResults({
                 <div className="grid gap-2">
                   {q.opts.map((opt, i) => {
                     const label = optionLabel(i);
-                    const isCorrect = label === q.correct;
-                    const isSelected = label === q.selected;
+                    const isCorrect = parseAnswerLabels(q.correct).includes(label);
+                    const isSelected = (q.selected || []).includes(label);
 
                     let cls = 'border-slate-200 bg-white text-slate-700';
                     if (isCorrect) cls = 'border-emerald-500 bg-emerald-50 text-emerald-800';
@@ -692,7 +742,7 @@ function ExamResults({
                 </div>
 
                 <div className="text-sm text-slate-700 bg-slate-50 rounded-lg p-4">
-                  <div className="font-bold mb-1">正确答案：{q.correct}</div>
+                  <div className="font-bold mb-1">正确答案：{parseAnswerLabels(q.correct).join(', ')}</div>
                   {q.exp_zh ? <div className="leading-relaxed">{q.exp_zh}</div> : null}
                   {q.exp_link ? (
                     <a href={q.exp_link} target="_blank" rel="noreferrer" className="inline-block mt-2 text-[#FF3621] hover:underline">

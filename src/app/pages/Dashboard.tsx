@@ -223,6 +223,16 @@ export default function Dashboard() {
               <Line type="monotone" dataKey="engineer" stroke="#7c3aed" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 5 }} name="Data Engineer" connectNulls={false} />
             </LineChart>
           </ResponsiveContainer>
+         <div className="flex gap-6 mt-4 justify-center">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+              <span className="text-sm text-gray-600">Data Analyst</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
+              <span className="text-sm text-gray-600">Data Engineer</span>
+            </div>
+          </div>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-xl p-5">
