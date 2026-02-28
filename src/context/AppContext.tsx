@@ -36,7 +36,7 @@ interface AppContextType {
       role?: UserRole;
       name?: string;
     },
-  ) => void;
+  ) => Promise<void>;
   logout: () => void;
   refreshCloudState: () => Promise<void>;
   updateProfile: (patch: { name?: string }) => Promise<void>;
@@ -176,7 +176,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [user?.id]);
 
-  const login = (
+  const login = async (
     email: string,
     options?: {
       role?: UserRole;
@@ -185,14 +185,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ) => {
     const normalizedEmail = email.trim().toLowerCase();
     const nextId = buildUserIdFromEmail(normalizedEmail);
+    const localProfileKey = `${PROFILE_KEY_PREFIX}${nextId}`;
+
+    let resolvedRole: UserRole = options?.role ?? 'student';
+    let resolvedName = options?.name?.trim() || '';
+
+    const localProfileRaw = localStorage.getItem(localProfileKey);
+    if (localProfileRaw) {
+      try {
+        const localProfile = JSON.parse(localProfileRaw) as { role?: UserRole; name?: string };
+        if (!options?.role && localProfile.role) resolvedRole = localProfile.role;
+        if (!resolvedName && localProfile.name) resolvedName = localProfile.name;
+      } catch {
+        // ignore malformed local profile
+      }
+    }
+
+    if (!options?.role && !localProfileRaw) {
+      try {
+        const remoteProfile = await getUserProfile(nextId);
+        if (remoteProfile?.role) resolvedRole = remoteProfile.role as UserRole;
+        if (!resolvedName && remoteProfile?.name) resolvedName = remoteProfile.name;
+      } catch {
+        // cloud unavailable; fallback to defaults
+      }
+    }
     const fallbackName = normalizedEmail.split('@')[0] || '同学';
 
     const newUser = {
       ...CURRENT_USER,
       id: nextId,
       email: normalizedEmail,
-      role: options?.role ?? 'student',
-      name: options?.name?.trim() ? options.name.trim() : fallbackName,
+      role: resolvedRole,
+      name: resolvedName || fallbackName,
       progress: {
         analyst: 0,
         engineer: 0,
@@ -202,7 +227,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUser(newUser);
     localStorage.setItem('db_user', JSON.stringify(newUser));
     localStorage.setItem(
-      `${PROFILE_KEY_PREFIX}${newUser.id}`,
+      localProfileKey,
       JSON.stringify({
         id: newUser.id,
         email: newUser.email,
@@ -211,15 +236,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }),
     );
 
-    void setUserProfile(newUser.id, {
-      id: newUser.id,
-      email: newUser.email,
-      name: newUser.name,
-      role: newUser.role,
-    }).catch((error) => {
+    try {
+      await setUserProfile(newUser.id, {
+        id: newUser.id,
+        email: newUser.email,
+        name: newUser.name,
+        role: newUser.role,
+      });
+    } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       handleCloudFailure(message);
-    });
+    }
   };
 
   const logout = () => {
