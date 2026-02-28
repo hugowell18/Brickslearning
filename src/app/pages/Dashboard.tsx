@@ -144,6 +144,16 @@ export default function Dashboard() {
     () => new Set(modules.filter((m) => m.status === 'completed').map((m) => m.id)),
     [modules],
   );
+  const nextLearningModule = useMemo(() => {
+    const inProgress = modules.find((m) => m.status === 'in-progress');
+    if (inProgress) return inProgress;
+    const notStarted = modules.find((m) => m.status === 'not-started');
+    if (notStarted) return notStarted;
+    return null;
+  }, [modules]);
+  const continueLearningDescription = nextLearningModule
+    ? nextLearningModule.title
+    : '已完成全部学习模块，可进行错题复习';
   const moduleDates = Object.entries(moduleCompleteMeta)
     .filter(([moduleId]) => completedModuleIds.has(moduleId))
     .map(([, v]) => Date.parse(v))
@@ -286,7 +296,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <QuickActionCard
             title="继续学习"
-            description="SQL Warehouses & Query Optimization"
+            description={continueLearningDescription}
             link="/learning-path"
             color="orange"
           />
@@ -314,7 +324,7 @@ export default function Dashboard() {
           />
           <QuickActionCard
             title="模拟考试"
-            description="Data Analyst 全真模拟"
+            description="全真模拟"
             link="/mock-exam"
             color="green"
           />

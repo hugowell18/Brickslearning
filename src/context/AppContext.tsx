@@ -39,7 +39,7 @@ interface AppContextType {
   ) => Promise<void>;
   logout: () => void;
   refreshCloudState: () => Promise<void>;
-  updateProfile: (patch: { name?: string }) => Promise<void>;
+  updateProfile: (patch: { name?: string; avatar?: string }) => Promise<void>;
   updateProgress: (moduleId: string, status: ModuleStatus) => void;
   markQuestionCompleted: (uid: string) => void;
   setQuestionResult: (uid: string, correct: boolean) => void;
@@ -181,11 +181,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (remoteProfile) {
           const shouldUpdateName = !!remoteProfile.name && remoteProfile.name !== user.name;
           const shouldUpdateRole = !!remoteProfile.role && remoteProfile.role !== user.role;
-          if (shouldUpdateName || shouldUpdateRole) {
+          const incomingAvatar =
+            (remoteProfile as { avatar_url?: string; avatar?: string }).avatar_url ??
+            (remoteProfile as { avatar_url?: string; avatar?: string }).avatar;
+          const currentAvatar =
+            (user as { avatar_url?: string; avatar?: string }).avatar_url ??
+            (user as { avatar_url?: string; avatar?: string }).avatar;
+          const shouldUpdateAvatar =
+            Object.prototype.hasOwnProperty.call(remoteProfile, 'avatar_url') ||
+            Object.prototype.hasOwnProperty.call(remoteProfile, 'avatar')
+              ? incomingAvatar !== currentAvatar
+              : false;
+          if (shouldUpdateName || shouldUpdateRole || shouldUpdateAvatar) {
             const mergedUser = {
               ...user,
               name: remoteProfile.name || user.name,
               role: (remoteProfile.role || user.role) as typeof user.role,
+              avatar: incomingAvatar ?? currentAvatar,
+              avatar_url: incomingAvatar ?? currentAvatar,
+              avatar_thumb_url:
+                (remoteProfile as { avatar_thumb_url?: string }).avatar_thumb_url ??
+                (user as { avatar_thumb_url?: string; avatar_url?: string; avatar?: string }).avatar_thumb_url ??
+                incomingAvatar ??
+                currentAvatar,
             };
             setUser(mergedUser);
             localStorage.setItem('db_user', JSON.stringify(mergedUser));
@@ -216,13 +234,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     let resolvedRole: UserRole = options?.role ?? 'student';
     let resolvedName = options?.name?.trim() || '';
+    let resolvedAvatar = '';
 
     const localProfileRaw = localStorage.getItem(localProfileKey);
     if (localProfileRaw) {
       try {
-        const localProfile = JSON.parse(localProfileRaw) as { role?: UserRole; name?: string };
+        const localProfile = JSON.parse(localProfileRaw) as {
+          role?: UserRole;
+          name?: string;
+          avatar?: string;
+          avatar_url?: string;
+          avatar_thumb_url?: string;
+        };
         if (!options?.role && localProfile.role) resolvedRole = localProfile.role;
         if (!resolvedName && localProfile.name) resolvedName = localProfile.name;
+        if (!resolvedAvatar) {
+          resolvedAvatar = localProfile.avatar_url || localProfile.avatar || '';
+        }
       } catch {
         // ignore malformed local profile
       }
@@ -233,6 +261,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const remoteProfile = await getUserProfile(nextId);
         if (remoteProfile?.role) resolvedRole = remoteProfile.role as UserRole;
         if (!resolvedName && remoteProfile?.name) resolvedName = remoteProfile.name;
+        if (!resolvedAvatar) {
+          resolvedAvatar =
+            (remoteProfile as { avatar_url?: string; avatar?: string }).avatar_url ||
+            (remoteProfile as { avatar_url?: string; avatar?: string }).avatar ||
+            '';
+        }
       } catch {
         // cloud unavailable; fallback to defaults
       }
@@ -249,6 +283,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         analyst: 0,
         engineer: 0,
       },
+      avatar: resolvedAvatar || CURRENT_USER.avatar,
+      avatar_url: resolvedAvatar || CURRENT_USER.avatar,
+      avatar_thumb_url: resolvedAvatar || CURRENT_USER.avatar,
     };
 
     setUser(newUser);
@@ -260,6 +297,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         email: newUser.email,
         name: newUser.name,
         role: newUser.role,
+        avatar: newUser.avatar,
+        avatar_url: (newUser as { avatar_url?: string }).avatar_url || newUser.avatar,
+        avatar_thumb_url: (newUser as { avatar_thumb_url?: string }).avatar_thumb_url || newUser.avatar,
       }),
     );
 
@@ -269,6 +309,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         email: newUser.email,
         name: newUser.name,
         role: newUser.role,
+        avatar: newUser.avatar,
+        avatar_url: (newUser as { avatar_url?: string }).avatar_url || newUser.avatar,
+        avatar_thumb_url: (newUser as { avatar_thumb_url?: string }).avatar_thumb_url || newUser.avatar,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -284,14 +327,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.removeItem('db_user');
   };
 
-  const updateProfile = async (patch: { name?: string }) => {
+  const updateProfile = async (
+    patch: {
+      name?: string;
+      avatar?: string;
+      avatar_url?: string;
+      avatar_thumb_url?: string;
+      avatar_updated_at?: string;
+    },
+  ) => {
     if (!user) return;
     if (cloudState.blocked) {
       throw new Error(cloudState.message || '云端已阻断，无法更新资料。');
     }
 
     const nextName = patch.name?.trim() || user.name;
-    const nextUser = { ...user, name: nextName };
+    const nextAvatar =
+      patch.avatar_url ||
+      patch.avatar ||
+      ((user as { avatar_url?: string; avatar?: string }).avatar_url ??
+        (user as { avatar_url?: string; avatar?: string }).avatar ??
+        '');
+    const nextAvatarThumb =
+      patch.avatar_thumb_url ||
+      ((user as { avatar_thumb_url?: string; avatar_url?: string; avatar?: string }).avatar_thumb_url ??
+        (user as { avatar_thumb_url?: string; avatar_url?: string; avatar?: string }).avatar_url ??
+        (user as { avatar_thumb_url?: string; avatar_url?: string; avatar?: string }).avatar ??
+        '');
+
+    const nextUser = { ...user, name: nextName, avatar: nextAvatar, avatar_url: nextAvatar, avatar_thumb_url: nextAvatarThumb };
     setUser(nextUser);
     localStorage.setItem('db_user', JSON.stringify(nextUser));
     localStorage.setItem(
@@ -301,6 +365,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         email: nextUser.email,
         name: nextUser.name,
         role: nextUser.role,
+        avatar: nextUser.avatar,
+        avatar_url: (nextUser as { avatar_url?: string }).avatar_url || nextUser.avatar,
+        avatar_thumb_url: (nextUser as { avatar_thumb_url?: string }).avatar_thumb_url || nextUser.avatar,
       }),
     );
     try {
@@ -309,6 +376,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         email: nextUser.email,
         name: nextUser.name,
         role: nextUser.role,
+        avatar: nextUser.avatar,
+        avatar_url: (nextUser as { avatar_url?: string }).avatar_url || nextUser.avatar,
+        avatar_thumb_url: (nextUser as { avatar_thumb_url?: string }).avatar_thumb_url || nextUser.avatar,
+        avatar_updated_at: patch.avatar_updated_at,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

@@ -3,8 +3,7 @@ import { ChevronRight, ChevronLeft, BookmarkPlus, Bookmark } from 'lucide-react'
 import { questions } from '../data/mockData';
 import { useApp } from '../../context/AppContext';
 import { useLocation, useNavigate } from 'react-router';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Button } from '../components/ui/button';
+import ConfirmActionDialog from '../components/ConfirmActionDialog';
 import { getPracticeDotClassName, getPracticeDotState } from './practiceProgressState';
 import { shouldMarkCompletedOnNext, shouldMarkCompletedOnSubmit } from './practiceCompletionPolicy';
 import { normalizeReviewRequestIds } from '../utils/wrongReview';
@@ -427,24 +426,16 @@ export default function Practice() {
         </div>
       </div>
 
-      <Dialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>清除练习进度</DialogTitle>
-            <DialogDescription>
-              这将清除当前分类的做题记录与学习进度。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setClearDialogOpen(false)}>
-              取消
-            </Button>
-            <Button variant="destructive" onClick={handleClearProgress}>
-              确认清除
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmActionDialog
+        open={clearDialogOpen}
+        title="确认清空练习进度？"
+        description="这将清空当前分类的做题记录与学习进度，此操作不可恢复。"
+        confirmText="确认清空"
+        cancelText="取消"
+        destructive
+        onOpenChange={setClearDialogOpen}
+        onConfirm={handleClearProgress}
+      />
 
       <aside
         className={`fixed right-0 top-0 h-full w-80 bg-white shadow-2xl z-30 transform transition-transform duration-300 ${

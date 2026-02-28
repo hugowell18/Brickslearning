@@ -3,6 +3,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const KV_TABLE = 'kv_store_9b296f01';
+const AVATAR_BUCKET = import.meta.env.VITE_SUPABASE_AVATAR_BUCKET || 'avatars';
 
 let _supabase: SupabaseClient | null = null;
 if (supabaseUrl && supabaseAnonKey) {
@@ -132,6 +133,10 @@ export async function setUserProfile(
     email: string;
     name: string;
     role: 'student' | 'instructor' | 'admin';
+    avatar?: string;
+    avatar_url?: string;
+    avatar_thumb_url?: string;
+    avatar_updated_at?: string;
   },
 ) {
   // Keep both legacy and new keys in sync to avoid role drift across versions.
@@ -147,6 +152,10 @@ export async function getUserProfile(userId: string) {
     email: string;
     name: string;
     role: 'student' | 'instructor' | 'admin';
+    avatar?: string;
+    avatar_url?: string;
+    avatar_thumb_url?: string;
+    avatar_updated_at?: string;
   };
 
   const [legacyProfile, namespacedProfile] = await Promise.all([
@@ -156,4 +165,58 @@ export async function getUserProfile(userId: string) {
 
   // Prefer namespaced key if present (it is the canonical key used by newer data).
   return namespacedProfile ?? legacyProfile;
+}
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, b64] = dataUrl.split(',');
+  if (!header || !b64) throw new Error('Invalid data url');
+  const mimeMatch = /data:(.*?);base64/.exec(header);
+  const mime = mimeMatch?.[1] || 'image/webp';
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+export async function uploadAvatarImages(
+  userId: string,
+  images: { fullDataUrl: string; thumbDataUrl: string },
+): Promise<{ avatar_url: string; avatar_thumb_url: string; avatar_updated_at: string }> {
+  const health = await checkCloudHealth();
+  if (!health.ok) {
+    throw new Error(health.message);
+  }
+  const supabase = getClient();
+  const ts = Date.now();
+  const fullPath = `${userId}/avatar_full_${ts}.webp`;
+  const thumbPath = `${userId}/avatar_thumb_${ts}.webp`;
+
+  const fullBlob = dataUrlToBlob(images.fullDataUrl);
+  const thumbBlob = dataUrlToBlob(images.thumbDataUrl);
+
+  const [fullRes, thumbRes] = await Promise.all([
+    supabase.storage.from(AVATAR_BUCKET).upload(fullPath, fullBlob, {
+      upsert: true,
+      contentType: 'image/webp',
+      cacheControl: '3600',
+    }),
+    supabase.storage.from(AVATAR_BUCKET).upload(thumbPath, thumbBlob, {
+      upsert: true,
+      contentType: 'image/webp',
+      cacheControl: '3600',
+    }),
+  ]);
+
+  if (fullRes.error) throw new Error(`Avatar upload failed: ${fullRes.error.message}`);
+  if (thumbRes.error) throw new Error(`Avatar thumb upload failed: ${thumbRes.error.message}`);
+
+  const fullPublic = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(fullPath).data.publicUrl;
+  const thumbPublic = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(thumbPath).data.publicUrl;
+  const avatar_updated_at = new Date(ts).toISOString();
+
+  return {
+    avatar_url: fullPublic,
+    avatar_thumb_url: thumbPublic,
+    avatar_updated_at,
+  };
 }
