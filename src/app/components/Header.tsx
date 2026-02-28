@@ -6,7 +6,11 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 
-export default function Header() {
+type HeaderProps = {
+  onMenuClick?: () => void;
+};
+
+export default function Header({ onMenuClick }: HeaderProps) {
   const navigate = useNavigate();
   const { user, logout, cloudState, updateProfile } = useApp();
   const [openProfile, setOpenProfile] = useState(false);
@@ -39,7 +43,11 @@ export default function Header() {
   return (
     <header className="bg-white border-b border-gray-200 px-4 lg:px-6 py-4">
       <div className="flex items-center justify-between gap-4">
-        <button className="lg:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
+        <button
+          className="lg:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+          onClick={onMenuClick}
+          aria-label="Open menu"
+        >
           <Menu className="w-6 h-6" />
         </button>
 
@@ -58,7 +66,7 @@ export default function Header() {
             </span>
           )}
 
-          <button className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
+          <button className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg" aria-label="Notifications">
             <Bell className="w-5 h-5" />
           </button>
 
@@ -129,3 +137,4 @@ export default function Header() {
     </header>
   );
 }
+

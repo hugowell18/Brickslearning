@@ -134,14 +134,26 @@ export async function setUserProfile(
     role: 'student' | 'instructor' | 'admin';
   },
 ) {
-  await setJson(`profile:${userId}`, profile);
+  // Keep both legacy and new keys in sync to avoid role drift across versions.
+  await Promise.all([
+    setJson(`profile:${userId}`, profile),
+    setJson(`db_profile:${userId}`, profile),
+  ]);
 }
 
 export async function getUserProfile(userId: string) {
-  return getJson<{
+  type Profile = {
     id: string;
     email: string;
     name: string;
     role: 'student' | 'instructor' | 'admin';
-  } | null>(`profile:${userId}`, null);
+  };
+
+  const [legacyProfile, namespacedProfile] = await Promise.all([
+    getJson<Profile | null>(`profile:${userId}`, null),
+    getJson<Profile | null>(`db_profile:${userId}`, null),
+  ]);
+
+  // Prefer namespaced key if present (it is the canonical key used by newer data).
+  return namespacedProfile ?? legacyProfile;
 }

@@ -54,7 +54,7 @@ export default function Login() {
     {
       icon: BookOpen,
       title: '丰富题库练习',
-      description: '1000+ 真题模拟，覆盖所有知识点',
+      description: '真题模拟，覆盖所有知识点',
       image: 'https://images.unsplash.com/photo-1771408427146-09be9a1d4535?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxvbmxpbmUlMjBsZWFybmluZyUyMHN0dWRlbnQlMjBjb21wdXRlcnxlbnwxfHx8fDE3NzIyNDUyMTB8MA&ixlib=rb-4.1.0&q=80&w=1080',
     },
     {
@@ -72,7 +72,7 @@ export default function Login() {
     {
       icon: MessageCircle,
       title: '活跃学习社区',
-      description: '与学员交流经验，讲师在线答疑',
+      description: '与学员交流经验，在线答疑',
       image: 'https://images.unsplash.com/photo-1728933102332-a4f1a281a621?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0ZWFtJTIwY29sbGFib3JhdGlvbiUyMHRlY2hub2xvZ3klMjBvZmZpY2V8ZW58MXx8fHwxNzcyMTcxMjM1fDA&ixlib=rb-4.1.0&q=80&w=1080',
     },
     {

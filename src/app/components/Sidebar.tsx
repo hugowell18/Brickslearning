@@ -10,13 +10,50 @@ const navigation = [
   { name: '社区', href: '/community', icon: MessageSquare },
 ];
 
-export default function Sidebar() {
+type SidebarProps = {
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
+};
+
+export default function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
   const location = useLocation();
   const { user } = useApp();
   const isAdmin = user?.role === 'admin';
 
   return (
-    <div className="w-64 bg-white border-r border-gray-200 flex flex-col hidden lg:flex">
+    <>
+      <div className="w-64 bg-white border-r border-gray-200 flex-col hidden lg:flex">
+        <SidebarContent locationPath={location.pathname} isAdmin={isAdmin} onNavigate={undefined} />
+      </div>
+
+      <div
+        className={`lg:hidden fixed inset-0 z-40 bg-black/40 transition-opacity ${
+          mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={onCloseMobile}
+      />
+      <aside
+        className={`lg:hidden fixed top-0 left-0 bottom-0 z-50 w-72 max-w-[85vw] bg-white border-r border-gray-200 shadow-xl transition-transform duration-300 ${
+          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <SidebarContent locationPath={location.pathname} isAdmin={isAdmin} onNavigate={onCloseMobile} />
+      </aside>
+    </>
+  );
+}
+
+function SidebarContent({
+  locationPath,
+  isAdmin,
+  onNavigate,
+}: {
+  locationPath: string;
+  isAdmin: boolean;
+  onNavigate?: () => void;
+}) {
+  return (
+    <>
       <div className="p-6 border-b border-gray-200">
         <div className="flex items-center gap-2">
           <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center">
@@ -31,12 +68,13 @@ export default function Sidebar() {
 
       <nav className="flex-1 p-4 space-y-1">
         {navigation.map((item) => {
-          const isActive = location.pathname === item.href;
+          const isActive = locationPath === item.href;
           const Icon = item.icon;
           return (
             <Link
               key={item.name}
               to={item.href}
+              onClick={onNavigate}
               className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
                 isActive ? 'bg-orange-50 text-orange-600 font-medium' : 'text-gray-700 hover:bg-gray-50'
               }`}
@@ -51,8 +89,9 @@ export default function Sidebar() {
           <div className="pt-4 mt-4 border-t border-gray-200">
             <Link
               to="/admin"
+              onClick={onNavigate}
               className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                location.pathname === '/admin' ? 'bg-gray-900 text-white font-medium' : 'text-gray-700 hover:bg-gray-50'
+                locationPath === '/admin' ? 'bg-gray-900 text-white font-medium' : 'text-gray-700 hover:bg-gray-50'
               }`}
             >
               <Shield className="w-5 h-5" />
@@ -75,6 +114,7 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
+

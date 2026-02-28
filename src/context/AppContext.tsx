@@ -69,6 +69,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     INITIAL_MODULES.map((m) => ({ ...m, status: m.status ?? 'not-started' })),
   );
   const [completedQuestions, setCompletedQuestions] = useState<string[]>([]);
+  const [completedQuestionMeta, setCompletedQuestionMeta] = useState<Record<string, string>>({});
   const [questionStatus, setQuestionStatus] = useState<Record<string, 'correct' | 'incorrect'>>({});
   const [cloudState, setCloudState] = useState<CloudState>({
     strict: true,
@@ -135,12 +136,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       try {
-        const [progressMap, qs, remoteProfile, statusMap, moduleCompleteMeta] = await Promise.all([
+        const [progressMap, qs, remoteProfile, statusMap, moduleCompleteMeta, completedMeta] = await Promise.all([
           getProgress(user.id),
           getCompletedQuestions(user.id),
           getUserProfile(user.id),
           getJson<Record<string, 'correct' | 'incorrect'>>(`${QUESTION_STATUS_KEY_PREFIX}${user.id}`, {}),
           getJson<Record<string, string>>(`${MODULE_COMPLETE_META_KEY_PREFIX}${user.id}`, {}),
+          getJson<Record<string, string>>(`${COMPLETED_META_KEY_PREFIX}${user.id}`, {}),
         ]);
 
         if (cancelled) return;
@@ -156,13 +158,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             };
           }),
         );
-        setCompletedQuestions(Array.isArray(qs) ? qs : []);
+        const nowIso = new Date().toISOString();
+        const mergedMeta: Record<string, string> = { ...(completedMeta || {}) };
+        if (Array.isArray(qs)) {
+          for (const uid of qs) {
+            if (!mergedMeta[uid]) mergedMeta[uid] = nowIso;
+          }
+        }
+        const mergedCompleted = Array.from(new Set([...(Array.isArray(qs) ? qs : []), ...Object.keys(mergedMeta)]));
+        setCompletedQuestionMeta(mergedMeta);
+        setCompletedQuestions(mergedCompleted);
         setQuestionStatus(statusMap || {});
 
-        if (remoteProfile && remoteProfile.name && remoteProfile.name !== user.name) {
-          const mergedUser = { ...user, name: remoteProfile.name, role: remoteProfile.role };
-          setUser(mergedUser);
-          localStorage.setItem('db_user', JSON.stringify(mergedUser));
+        // Backfill legacy users: keep completed list and meta in sync in cloud.
+        if (mergedCompleted.length !== (Array.isArray(qs) ? qs.length : 0)) {
+          void saveCompletedQuestions(user.id, mergedCompleted).catch(() => {});
+        }
+        if (Object.keys(mergedMeta).length !== Object.keys(completedMeta || {}).length) {
+          void setJson(`${COMPLETED_META_KEY_PREFIX}${user.id}`, mergedMeta).catch(() => {});
+        }
+
+        if (remoteProfile) {
+          const shouldUpdateName = !!remoteProfile.name && remoteProfile.name !== user.name;
+          const shouldUpdateRole = !!remoteProfile.role && remoteProfile.role !== user.role;
+          if (shouldUpdateName || shouldUpdateRole) {
+            const mergedUser = {
+              ...user,
+              name: remoteProfile.name || user.name,
+              role: (remoteProfile.role || user.role) as typeof user.role,
+            };
+            setUser(mergedUser);
+            localStorage.setItem('db_user', JSON.stringify(mergedUser));
+          }
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -201,7 +228,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    if (!options?.role && !localProfileRaw) {
+    if (!options?.role) {
       try {
         const remoteProfile = await getUserProfile(nextId);
         if (remoteProfile?.role) resolvedRole = remoteProfile.role as UserRole;
@@ -253,6 +280,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUser(null);
     setModules(INITIAL_MODULES.map((m) => ({ ...m, status: m.status ?? 'not-started' })));
     setCompletedQuestions([]);
+    setCompletedQuestionMeta({});
     localStorage.removeItem('db_user');
   };
 
@@ -322,6 +350,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const markQuestionCompleted = (uid: string) => {
     if (!user || cloudState.blocked) return;
+    const metaKey = `${COMPLETED_META_KEY_PREFIX}${user.id}`;
+    const nowIso = new Date().toISOString();
+
+    setCompletedQuestionMeta((prev) => {
+      if (prev[uid]) return prev;
+      const next = { ...prev, [uid]: nowIso };
+      void setJson(metaKey, next).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        handleCloudFailure(message);
+      });
+      return next;
+    });
+
     setCompletedQuestions((prev) => {
       if (prev.includes(uid)) return prev;
       const next = [...prev, uid];
@@ -351,6 +392,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const clearPracticeProgress = (uids: string[], category?: string) => {
     if (!user || cloudState.blocked || uids.length === 0) return;
     const target = new Set(uids);
+    const completedMetaKey = `${COMPLETED_META_KEY_PREFIX}${user.id}`;
     const reviewKey = `${REVIEW_EVENTS_KEY_PREFIX}${user.id}`;
     const attemptKey = `${ATTEMPT_EVENTS_KEY_PREFIX}${user.id}`;
 
@@ -369,6 +411,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!target.has(uid)) next[uid] = prev[uid];
       });
       void setJson(`${QUESTION_STATUS_KEY_PREFIX}${user.id}`, next).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        handleCloudFailure(message);
+      });
+      return next;
+    });
+
+    setCompletedQuestionMeta((prev) => {
+      const next: Record<string, string> = {};
+      Object.keys(prev).forEach((uid) => {
+        if (!target.has(uid)) next[uid] = prev[uid];
+      });
+      void setJson(completedMetaKey, next).catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
         handleCloudFailure(message);
       });

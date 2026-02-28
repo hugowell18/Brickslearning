@@ -1,37 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useApp } from '../../context/AppContext';
 import { getJson } from '../../lib/supabaseClient';
 import { questions as questionBank } from '../data/mockData';
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import {
+  buildLearningTrendFromCompletedMeta,
+  calculateWeeklyCoverageFromCompletedMeta,
+  getWeekStartMonday,
+  toOneDecimal,
+} from '../utils/completedMetaMetrics';
 
-type ReviewEvent = { uid: string; at: string };
 type AttemptEvent = { uid: string; correct: boolean; at: string };
 type MockExamHistory = { id?: string; date?: string; submittedAt?: string };
-
-function toOneDecimal(v: number) {
-  if (!Number.isFinite(v)) return 0;
-  return Number(v.toFixed(1));
-}
-
-function weekStartMonday(ts: number) {
-  const d = new Date(ts);
-  const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const day = midnight.getDay();
-  const daysSinceMonday = (day + 6) % 7;
-  return midnight.getTime() - daysSinceMonday * 24 * 60 * 60 * 1000;
-}
-
-function countUniqueInWindow(events: ReviewEvent[], allowed: Set<string>, start: number, end: number) {
-  const hit = new Set<string>();
-  for (const evt of events) {
-    if (!allowed.has(evt.uid)) continue;
-    const ts = Date.parse(evt.at);
-    if (Number.isNaN(ts)) continue;
-    if (ts >= start && ts < end) hit.add(evt.uid);
-  }
-  return hit.size;
-}
+type CompletedMeta = Record<string, string>;
 
 function pct(done: number, total: number) {
   if (total <= 0) return 0;
@@ -44,8 +26,8 @@ function percentChange(thisWeek: number, prevWeek: number) {
 }
 
 export default function Dashboard() {
-  const { user, modules, completedQuestions, cloudState } = useApp();
-  const [reviewEvents, setReviewEvents] = useState<ReviewEvent[]>([]);
+  const { user, modules, cloudState } = useApp();
+  const [completedMeta, setCompletedMeta] = useState<CompletedMeta>({});
   const [attemptEvents, setAttemptEvents] = useState<AttemptEvent[]>([]);
   const [moduleCompleteMeta, setModuleCompleteMeta] = useState<Record<string, string>>({});
   const [mockExamHistory, setMockExamHistory] = useState<MockExamHistory[]>([]);
@@ -56,20 +38,20 @@ export default function Dashboard() {
 
     const load = async () => {
       try {
-        const [reviews, attempts, moduleMeta, exams] = await Promise.all([
-          getJson<ReviewEvent[]>(`db_progress:review_events:${user.id}`, []),
+        const [qMeta, attempts, moduleMeta, exams] = await Promise.all([
+          getJson<CompletedMeta>(`db_progress:completed_meta:${user.id}`, {}),
           getJson<AttemptEvent[]>(`db_progress:attempt_events:${user.id}`, []),
           getJson<Record<string, string>>(`db_progress:module_complete_meta:${user.id}`, {}),
           getJson<MockExamHistory[]>(`db_mock_exam_history:${user.id}`, []),
         ]);
         if (cancelled) return;
-        setReviewEvents(Array.isArray(reviews) ? reviews : []);
+        setCompletedMeta(qMeta || {});
         setAttemptEvents(Array.isArray(attempts) ? attempts : []);
         setModuleCompleteMeta(moduleMeta || {});
         setMockExamHistory(Array.isArray(exams) ? exams : []);
       } catch {
         if (cancelled) return;
-        setReviewEvents([]);
+        setCompletedMeta({});
         setAttemptEvents([]);
         setModuleCompleteMeta({});
         setMockExamHistory([]);
@@ -92,22 +74,60 @@ export default function Dashboard() {
   );
   const allIds = useMemo(() => new Set(questionBank.map((q) => q.uid)), []);
 
-  const analystDone = useMemo(() => completedQuestions.filter((id) => analystIds.has(id)).length, [completedQuestions, analystIds]);
-  const engineerDone = useMemo(() => completedQuestions.filter((id) => engineerIds.has(id)).length, [completedQuestions, engineerIds]);
+  const completedQuestionIds = useMemo(() => Object.keys(completedMeta), [completedMeta]);
+
+  const analystDone = useMemo(() => completedQuestionIds.filter((id) => analystIds.has(id)).length, [completedQuestionIds, analystIds]);
+  const engineerDone = useMemo(() => completedQuestionIds.filter((id) => engineerIds.has(id)).length, [completedQuestionIds, engineerIds]);
 
   const now = Date.now();
-  const thisWeekStart = weekStartMonday(now);
+  const thisWeekStart = getWeekStartMonday(now);
   const prevWeekStart = thisWeekStart - 7 * 24 * 60 * 60 * 1000;
 
-  const thisWeekCoverageAll = pct(countUniqueInWindow(reviewEvents, allIds, thisWeekStart, now), allIds.size);
-  const prevWeekCoverageAll = pct(countUniqueInWindow(reviewEvents, allIds, prevWeekStart, thisWeekStart), allIds.size);
-  const thisWeekCoverageAnalyst = pct(countUniqueInWindow(reviewEvents, analystIds, thisWeekStart, now), analystIds.size);
-  const prevWeekCoverageAnalyst = pct(countUniqueInWindow(reviewEvents, analystIds, prevWeekStart, thisWeekStart), analystIds.size);
-  const thisWeekCoverageEngineer = pct(countUniqueInWindow(reviewEvents, engineerIds, thisWeekStart, now), engineerIds.size);
-  const prevWeekCoverageEngineer = pct(countUniqueInWindow(reviewEvents, engineerIds, prevWeekStart, thisWeekStart), engineerIds.size);
+  const coverageAll = useMemo(
+    () =>
+      calculateWeeklyCoverageFromCompletedMeta({
+        completedMeta,
+        allowedIds: allIds,
+        totalQuestions: allIds.size,
+        nowTs: now,
+      }),
+    [completedMeta, allIds, now],
+  );
+  const coverageAnalyst = useMemo(
+    () =>
+      calculateWeeklyCoverageFromCompletedMeta({
+        completedMeta,
+        allowedIds: analystIds,
+        totalQuestions: analystIds.size,
+        nowTs: now,
+      }),
+    [completedMeta, analystIds, now],
+  );
+  const coverageEngineer = useMemo(
+    () =>
+      calculateWeeklyCoverageFromCompletedMeta({
+        completedMeta,
+        allowedIds: engineerIds,
+        totalQuestions: engineerIds.size,
+        nowTs: now,
+      }),
+    [completedMeta, engineerIds, now],
+  );
 
-  const moduleDates = Object.values(moduleCompleteMeta)
-    .map((v) => Date.parse(v))
+  const thisWeekCoverageAll = coverageAll.thisWeekCoveragePct;
+  const prevWeekCoverageAll = coverageAll.prevWeekCoveragePct;
+  const thisWeekCoverageAnalyst = coverageAnalyst.thisWeekCoveragePct;
+  const prevWeekCoverageAnalyst = coverageAnalyst.prevWeekCoveragePct;
+  const thisWeekCoverageEngineer = coverageEngineer.thisWeekCoveragePct;
+  const prevWeekCoverageEngineer = coverageEngineer.prevWeekCoveragePct;
+
+  const completedModuleIds = useMemo(
+    () => new Set(modules.filter((m) => m.status === 'completed').map((m) => m.id)),
+    [modules],
+  );
+  const moduleDates = Object.entries(moduleCompleteMeta)
+    .filter(([moduleId]) => completedModuleIds.has(moduleId))
+    .map(([, v]) => Date.parse(v))
     .filter((v) => Number.isFinite(v)) as number[];
   const thisWeekModuleCount = moduleDates.filter((ts) => ts >= thisWeekStart && ts < thisWeekStart + 7 * 24 * 60 * 60 * 1000).length;
   const prevWeekModuleCount = moduleDates.filter((ts) => ts >= prevWeekStart && ts < thisWeekStart).length;
@@ -126,18 +146,17 @@ export default function Dashboard() {
 
   const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
   const dayMs = 24 * 60 * 60 * 1000;
-  const learningTrendData = dayLabels.map((label, idx) => {
-    const dayStart = thisWeekStart + idx * dayMs;
-    if (dayStart > now) {
-      return { date: label, analyst: null, engineer: null };
-    }
-    const dayEnd = Math.min(now, dayStart + dayMs);
-    return {
-      date: label,
-      analyst: countUniqueInWindow(reviewEvents, analystIds, thisWeekStart, dayEnd),
-      engineer: countUniqueInWindow(reviewEvents, engineerIds, thisWeekStart, dayEnd),
-    };
-  });
+  const learningTrendData = useMemo(
+    () =>
+      buildLearningTrendFromCompletedMeta({
+        completedMeta,
+        analystIds,
+        engineerIds,
+        nowTs: now,
+        dayLabels,
+      }),
+    [completedMeta, analystIds, engineerIds, now],
+  );
 
   const accuracyTrendData = Array.from({ length: 4 }).map((_, idx) => {
     const i = 3 - idx;
@@ -185,7 +204,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard title="学习模块" value={`${modules.filter((m) => m.status === 'completed').length} / ${modules.length}`} change={thisWeekModulePct - prevWeekModulePct} />
-        <StatCard title="已完成题目" value={`${completedQuestions.length}`} change={thisWeekCoverageAll - prevWeekCoverageAll} />
+        <StatCard title="已完成题目" value={`${completedQuestionIds.length}`} change={thisWeekCoverageAll - prevWeekCoverageAll} />
         <StatCard title="分析师进度" value={`${pct(analystDone, analystIds.size)}%`} change={thisWeekCoverageAnalyst - prevWeekCoverageAnalyst} />
         <StatCard title="工程师进度" value={`${pct(engineerDone, engineerIds.size)}%`} change={thisWeekCoverageEngineer - prevWeekCoverageEngineer} />
         <StatCard title="模拟考试" value={`${mockExamHistory.length}`} change={percentChange(thisWeekExamCount, prevWeekExamCount)} />
@@ -195,13 +214,13 @@ export default function Dashboard() {
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">学习趋势</h3>
           <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={learningTrendData}>
-              <CartesianGrid strokeDasharray="3 3" />
+            <LineChart data={learningTrendData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" />
               <XAxis dataKey="date" />
               <YAxis allowDecimals={false} />
               <Tooltip />
-              <Line type="monotone" dataKey="analyst" stroke="#2563eb" strokeWidth={2} name="分析师(题数)" connectNulls={false} />
-              <Line type="monotone" dataKey="engineer" stroke="#7c3aed" strokeWidth={2} name="工程师(题数)" connectNulls={false} />
+              <Line type="monotone" dataKey="analyst" stroke="#2563eb" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 5 }} name="Data Analyst" connectNulls={false} />
+              <Line type="monotone" dataKey="engineer" stroke="#7c3aed" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 5 }} name="Data Engineer" connectNulls={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -209,12 +228,25 @@ export default function Dashboard() {
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">正确率趋势</h3>
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={accuracyTrendData}>
-              <CartesianGrid strokeDasharray="3 3" />
+            <BarChart data={accuracyTrendData} barCategoryGap="8%" margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+              <defs>
+                <linearGradient id="accuracyBarGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#fb923c" stopOpacity={0.95} />
+                  <stop offset="100%" stopColor="#f97316" stopOpacity={0.75} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" />
               <XAxis dataKey="week" />
               <YAxis domain={[0, 100]} />
               <Tooltip />
-              <Bar dataKey="rate" fill="#f97316" name="正确率(%)" />
+              <Bar dataKey="rate" fill="url(#accuracyBarGradient)" name="正确率(%)" radius={[10, 10, 0, 0]} barSize={56} maxBarSize={64}>
+                {accuracyTrendData.map((entry, index) => (
+                  <Cell
+                    key={`acc-cell-${entry.week}-${index}`}
+                    fillOpacity={entry.rate >= 80 ? 1 : entry.rate >= 60 ? 0.9 : 0.78}
+                  />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
