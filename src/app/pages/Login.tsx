@@ -40,8 +40,17 @@ export default function Login() {
       return;
     }
 
-    await login(email, { name: !isLogin ? name : undefined });
-    navigate('/');
+    try {
+      await login(email, {
+        password,
+        name: !isLogin ? name : undefined,
+        isSignup: !isLogin,
+      });
+      navigate('/');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message || '登录/注册失败，请重试。');
+    }
   };
 
   const features = [

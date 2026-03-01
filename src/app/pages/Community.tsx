@@ -45,6 +45,9 @@ type ProfileLite = {
   email?: string;
   name?: string;
   role?: string;
+  avatar?: string;
+  avatar_url?: string;
+  avatar_thumb_url?: string;
 };
 
 type JumpState = {
@@ -211,6 +214,13 @@ export default function Community() {
   }, [comments]);
 
   const profileByHandle = useMemo(() => buildProfileHandleMap(profiles), [profiles]);
+  const profileById = useMemo(() => {
+    const map = new Map<string, ProfileLite>();
+    for (const p of profiles) {
+      if (p?.id) map.set(p.id, p);
+    }
+    return map;
+  }, [profiles]);
 
   const getMentionStatus = (text: string) => {
     const handles = parseMentionHandles(text || '');
@@ -333,6 +343,11 @@ export default function Community() {
       parentCommentId,
       authorId: user.id,
       authorName: user.name,
+      authorAvatar:
+        ((user as { avatar_url?: string; avatar?: string } | null)?.avatar_url ||
+          (user as { avatar_url?: string; avatar?: string } | null)?.avatar ||
+          ''
+        ).trim(),
       content,
       createdAt: new Date().toISOString(),
     };
@@ -416,6 +431,26 @@ export default function Community() {
     totalUsers: new Set(posts.map((p) => p.authorId)).size,
     todayPosts: posts.filter((p) => Date.now() - Date.parse(p.createdAt) < 24 * 60 * 60 * 1000).length,
   };
+
+  const popularTags = useMemo(() => {
+    const counter = new Map<string, { label: string; count: number }>();
+    for (const post of posts) {
+      for (const rawTag of post.tags || []) {
+        const label = String(rawTag || '').trim();
+        if (!label) continue;
+        const key = label.toLowerCase();
+        const existing = counter.get(key);
+        if (existing) {
+          existing.count += 1;
+        } else {
+          counter.set(key, { label, count: 1 });
+        }
+      }
+    }
+    return Array.from(counter.values())
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+      .slice(0, 12);
+  }, [posts]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -510,6 +545,8 @@ export default function Community() {
                     <img
                       src={
                         post.authorAvatar ||
+                        profileById.get(post.authorId)?.avatar_url ||
+                        profileById.get(post.authorId)?.avatar ||
                         'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=120&q=60'
                       }
                       alt={post.authorName}
@@ -693,15 +730,20 @@ export default function Community() {
               <h3 className="font-semibold text-gray-900">热门标签</h3>
             </div>
             <div className="flex flex-wrap gap-2">
-              {['Delta Lake', 'SQL', 'Unity Catalog', 'ETL', 'DLT', 'Auto Loader', 'Exam Prep'].map((tag) => (
-                <span
-                  key={tag}
-                  className="px-3 py-1 bg-gray-100 hover:bg-orange-100 text-gray-700 hover:text-orange-700 rounded-full text-sm cursor-pointer transition-colors"
-                  onClick={() => setSearch(tag)}
-                >
-                  {tag}
-                </span>
-              ))}
+              {popularTags.length > 0 ? (
+                popularTags.map((tag) => (
+                  <span
+                    key={tag.label.toLowerCase()}
+                    className="px-3 py-1 bg-gray-100 hover:bg-orange-100 text-gray-700 hover:text-orange-700 rounded-full text-sm cursor-pointer transition-colors"
+                    onClick={() => setSearch(tag.label)}
+                    title={`出现 ${tag.count} 次`}
+                  >
+                    {tag.label}
+                  </span>
+                ))
+              ) : (
+                <span className="text-sm text-gray-500">暂无标签</span>
+              )}
             </div>
           </div>
 
@@ -750,6 +792,11 @@ export default function Community() {
               id: makeId('p'),
               authorId: user.id,
               authorName: user.name,
+              authorAvatar:
+                ((user as { avatar_url?: string; avatar?: string } | null)?.avatar_url ||
+                  (user as { avatar_url?: string; avatar?: string } | null)?.avatar ||
+                  ''
+                ).trim(),
               title: draft.title.trim(),
               content: draft.content.trim(),
               tags: draft.tags,

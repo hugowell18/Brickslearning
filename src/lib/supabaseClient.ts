@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -28,6 +28,47 @@ function getClient(): SupabaseClient {
     throw new Error('Supabase client is not configured.');
   }
   return _supabase;
+}
+
+export async function signInWithPassword(email: string, password: string): Promise<User> {
+  const supabase = getClient();
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    throw new Error(error.message || '登录失败，请检查邮箱和密码。');
+  }
+  if (!data.user) {
+    throw new Error('登录失败：未获取到用户信息。');
+  }
+  return data.user;
+}
+
+export async function signUpWithPassword(email: string, password: string): Promise<User> {
+  const supabase = getClient();
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  if (error) {
+    throw new Error(error.message || '注册失败。');
+  }
+  if (!data.user) {
+    throw new Error('注册失败：未获取到用户信息。');
+  }
+  return data.user;
+}
+
+export async function signOutAuth(): Promise<void> {
+  const supabase = getClient();
+  const { error } = await supabase.auth.signOut();
+  if (error) {
+    throw new Error(error.message || '退出登录失败。');
+  }
+}
+
+export async function getCurrentAuthUser(): Promise<User | null> {
+  const supabase = getClient();
+  const { data, error } = await supabase.auth.getUser();
+  if (error) {
+    throw new Error(error.message || '获取登录会话失败。');
+  }
+  return data.user ?? null;
 }
 
 export function isSupabaseConfigured(): boolean {

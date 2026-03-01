@@ -3,9 +3,13 @@ import { CURRENT_USER, MODULES as INITIAL_MODULES, QUESTIONS, POSTS } from '../d
 import {
   checkCloudHealth,
   getCompletedQuestions,
+  getCurrentAuthUser,
   getJson,
   getProgress,
   getUserProfile,
+  signInWithPassword,
+  signOutAuth,
+  signUpWithPassword,
   setCompletedQuestions as saveCompletedQuestions,
   setJson,
   setProgress,
@@ -33,8 +37,9 @@ interface AppContextType {
   login: (
     email: string,
     options?: {
-      role?: UserRole;
+      password?: string;
       name?: string;
+      isSignup?: boolean;
     },
   ) => Promise<void>;
   logout: () => void;
@@ -57,11 +62,6 @@ const REVIEW_EVENTS_KEY_PREFIX = `${PROGRESS_KEY_PREFIX}review_events:`;
 const ATTEMPT_EVENTS_KEY_PREFIX = `${PROGRESS_KEY_PREFIX}attempt_events:`;
 const PROFILE_KEY_PREFIX = 'db_profile:';
 const QUESTION_STATUS_KEY_PREFIX = `${PROGRESS_KEY_PREFIX}question_status:`;
-
-function buildUserIdFromEmail(email: string) {
-  const normalized = email.trim().toLowerCase();
-  return `u_${normalized.replace(/[^a-z0-9]/g, '_')}`;
-}
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<typeof CURRENT_USER | null>(null);
@@ -111,6 +111,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         localStorage.removeItem('db_user');
       }
     }
+    void (async () => {
+      try {
+        const authUser = await getCurrentAuthUser();
+        if (!authUser) {
+          setUser(null);
+          localStorage.removeItem('db_user');
+          return;
+        }
+        setUser((prev) => {
+          if (prev && prev.id === authUser.id) return prev;
+          const nextUser = {
+            ...CURRENT_USER,
+            id: authUser.id,
+            email: (authUser.email || '').toLowerCase(),
+            role: 'student' as UserRole,
+            name: (authUser.email || '').split('@')[0] || '同学',
+            progress: {
+              analyst: 0,
+              engineer: 0,
+            },
+          };
+          localStorage.setItem('db_user', JSON.stringify(nextUser));
+          return nextUser;
+        });
+      } catch {
+        // keep existing behavior; auth check failure should not crash app
+      }
+    })();
     void refreshCloudState();
   }, []);
 
@@ -224,15 +252,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const login = async (
     email: string,
     options?: {
-      role?: UserRole;
+      password?: string;
       name?: string;
+      isSignup?: boolean;
     },
   ) => {
     const normalizedEmail = email.trim().toLowerCase();
-    const nextId = buildUserIdFromEmail(normalizedEmail);
+    const password = options?.password || '';
+    const isSignup = !!options?.isSignup;
+    if (!password) {
+      throw new Error('请输入密码。');
+    }
+
+    let authUser;
+    try {
+      authUser = isSignup
+        ? await signUpWithPassword(normalizedEmail, password)
+        : await signInWithPassword(normalizedEmail, password);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (/email not confirmed/i.test(msg)) {
+        throw new Error('该账号尚未完成邮箱验证，请先到邮箱确认。');
+      }
+      if (/invalid login credentials/i.test(msg)) {
+        throw new Error('邮箱或密码错误。');
+      }
+      throw error;
+    }
+
+    const nextId = authUser.id;
     const localProfileKey = `${PROFILE_KEY_PREFIX}${nextId}`;
 
-    let resolvedRole: UserRole = options?.role ?? 'student';
+    let resolvedRole: UserRole = 'student';
     let resolvedName = options?.name?.trim() || '';
     let resolvedAvatar = '';
 
@@ -246,7 +297,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           avatar_url?: string;
           avatar_thumb_url?: string;
         };
-        if (!options?.role && localProfile.role) resolvedRole = localProfile.role;
+        if (localProfile.role) resolvedRole = localProfile.role;
         if (!resolvedName && localProfile.name) resolvedName = localProfile.name;
         if (!resolvedAvatar) {
           resolvedAvatar = localProfile.avatar_url || localProfile.avatar || '';
@@ -256,27 +307,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    if (!options?.role) {
-      try {
-        const remoteProfile = await getUserProfile(nextId);
-        if (remoteProfile?.role) resolvedRole = remoteProfile.role as UserRole;
-        if (!resolvedName && remoteProfile?.name) resolvedName = remoteProfile.name;
-        if (!resolvedAvatar) {
-          resolvedAvatar =
-            (remoteProfile as { avatar_url?: string; avatar?: string }).avatar_url ||
-            (remoteProfile as { avatar_url?: string; avatar?: string }).avatar ||
-            '';
-        }
-      } catch {
-        // cloud unavailable; fallback to defaults
+    let remoteProfile: Awaited<ReturnType<typeof getUserProfile>> = null;
+    try {
+      remoteProfile = await getUserProfile(nextId);
+      if (remoteProfile?.role) resolvedRole = remoteProfile.role as UserRole;
+      if (!resolvedName && remoteProfile?.name) resolvedName = remoteProfile.name;
+      if (!resolvedAvatar) {
+        resolvedAvatar =
+          (remoteProfile as { avatar_url?: string; avatar?: string }).avatar_url ||
+          (remoteProfile as { avatar_url?: string; avatar?: string }).avatar ||
+          '';
       }
+    } catch {
+      // cloud unavailable; fallback to defaults
     }
     const fallbackName = normalizedEmail.split('@')[0] || '同学';
 
     const newUser = {
       ...CURRENT_USER,
       id: nextId,
-      email: normalizedEmail,
+      email: authUser.email || normalizedEmail,
       role: resolvedRole,
       name: resolvedName || fallbackName,
       progress: {
@@ -303,23 +353,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }),
     );
 
-    try {
-      await setUserProfile(newUser.id, {
-        id: newUser.id,
-        email: newUser.email,
-        name: newUser.name,
-        role: newUser.role,
-        avatar: newUser.avatar,
-        avatar_url: (newUser as { avatar_url?: string }).avatar_url || newUser.avatar,
-        avatar_thumb_url: (newUser as { avatar_thumb_url?: string }).avatar_thumb_url || newUser.avatar,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      handleCloudFailure(message);
+    // Avoid role clobbering on login: only initialize cloud profile on signup
+    // (or if there is no remote profile record yet).
+    const shouldInitProfile = isSignup || !remoteProfile;
+    if (shouldInitProfile) {
+      try {
+        await setUserProfile(newUser.id, {
+          id: newUser.id,
+          email: newUser.email,
+          name: newUser.name,
+          role: newUser.role,
+          avatar: newUser.avatar,
+          avatar_url: (newUser as { avatar_url?: string }).avatar_url || newUser.avatar,
+          avatar_thumb_url: (newUser as { avatar_thumb_url?: string }).avatar_thumb_url || newUser.avatar,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        handleCloudFailure(message);
+      }
     }
   };
 
   const logout = () => {
+    void signOutAuth().catch(() => {});
     setUser(null);
     setModules(INITIAL_MODULES.map((m) => ({ ...m, status: m.status ?? 'not-started' })));
     setCompletedQuestions([]);
