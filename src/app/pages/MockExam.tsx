@@ -3,6 +3,7 @@ import { AlertCircle, ChevronLeft, ChevronRight, Clock, Play, Trophy } from 'luc
 import { questions } from '../data/mockData';
 import { useApp } from '../../context/AppContext';
 import { getJson, setJson } from '../../lib/supabaseClient';
+import { buildQuestionOptionOrder, selectedDisplayToOriginal } from '../utils/optionOrder';
 
 type ExamState = 'selection' | 'in-progress' | 'results';
 type ExamTrack = 'analyst' | 'engineer';
@@ -311,6 +312,10 @@ function ExamInProgress({
   const [answers, setAnswers] = useState<Record<number, string[]>>({});
   const [timeLeft, setTimeLeft] = useState(EXAM_SECONDS);
   const [submitError, setSubmitError] = useState('');
+  const sessionSeed = useMemo(
+    () => `${track}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    [track],
+  );
 
   const answersRef = useRef<Record<number, string[]>>({});
   const questionsRef = useRef<ExamQuestion[]>([]);
@@ -319,6 +324,10 @@ function ExamInProgress({
     const pool = normalizeTrackPool(track);
     return shuffle(pool).slice(0, EXAM_TOTAL);
   }, [track]);
+  const examQuestionOptionViews = useMemo(
+    () => examQuestions.map((q) => buildQuestionOptionOrder(q, sessionSeed)),
+    [examQuestions, sessionSeed],
+  );
 
   useEffect(() => {
     questionsRef.current = examQuestions;
@@ -329,6 +338,7 @@ function ExamInProgress({
   }, [answers]);
 
   const currentQuestion = examQuestions[currentIndex];
+  const currentOptionView = examQuestionOptionViews[currentIndex];
   const answeredCount = Object.values(answers).filter((arr) => Array.isArray(arr) && arr.length > 0).length;
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
@@ -347,7 +357,9 @@ function ExamInProgress({
 
       const selected = finalAnswers[idx] || [];
       const expected = new Set(parseAnswerLabels(q.ans));
-      const selectedSet = new Set(selected);
+      const selectedSet = new Set(
+        selectedDisplayToOriginal(selected, examQuestionOptionViews[idx]?.labelToOriginalLabel || {}),
+      );
       const isCorrect =
         expected.size === selectedSet.size && [...expected].every((label) => selectedSet.has(label));
       if (isCorrect) {
@@ -360,7 +372,7 @@ function ExamInProgress({
           q_zh: q.q_zh,
           opts: q.opts,
           correct: q.ans,
-          selected,
+          selected: Array.from(selectedSet),
           exp_zh: q.exp_zh,
           exp_link: q.exp_link,
           img: q.img,
@@ -493,8 +505,9 @@ function ExamInProgress({
           </div>
 
           <div className="grid gap-3">
-            {currentQuestion.opts.map((opt, i) => {
-              const label = optionLabel(i);
+            {(currentOptionView?.displayedOptions || []).map((item) => {
+              const label = item.displayLabel;
+              const opt = item.text;
               const selected = (answers[currentIndex] || []).includes(label);
 
               return (
@@ -522,10 +535,10 @@ function ExamInProgress({
                   <div className="flex gap-3 items-start">
                     <span className="font-black text-slate-700 min-w-8">{label}.</span>
                     {isImageValue(opt) ? (
-                      <img src={opt} alt={`option-${label}`} className="max-w-full rounded border border-slate-200" />
-                    ) : (
-                      <span className="text-slate-800 whitespace-pre-wrap break-words">{opt}</span>
-                    )}
+                          <img src={opt} alt={`option-${label}`} className="max-w-full rounded border border-slate-200" />
+                        ) : (
+                          <span className="text-slate-800 whitespace-pre-wrap break-words">{opt}</span>
+                        )}
                   </div>
                 </button>
               );

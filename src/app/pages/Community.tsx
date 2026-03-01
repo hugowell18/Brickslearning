@@ -457,7 +457,7 @@ export default function Community() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">社区</h1>
-          <p className="text-gray-600 mt-1">与同学交流经验，支持评论回复与 @ 提及。</p>
+          <p className="text-gray-600 mt-1">交流经验，支持评论回复与 @ 提及。</p>
         </div>
         <button
           onClick={() => setShowNewPostModal(true)}
@@ -492,10 +492,6 @@ export default function Community() {
                   <option value="likes">最多点赞</option>
                   <option value="comments">最多回复</option>
                 </select>
-                <button className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors whitespace-nowrap">
-                  <Filter className="w-5 h-5" />
-                  <span className="hidden sm:inline">筛选</span>
-                </button>
               </div>
             </div>
           </div>

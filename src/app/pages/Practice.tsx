@@ -7,6 +7,7 @@ import ConfirmActionDialog from '../components/ConfirmActionDialog';
 import { getPracticeDotClassName, getPracticeDotState } from './practiceProgressState';
 import { shouldMarkCompletedOnNext, shouldMarkCompletedOnSubmit } from './practiceCompletionPolicy';
 import { normalizeReviewRequestIds } from '../utils/wrongReview';
+import { buildQuestionOptionOrder, selectedDisplayToOriginal } from '../utils/optionOrder';
 
 const REQUIRE_MULTI_CHOICE_SELECTION = true;
 
@@ -29,6 +30,7 @@ export default function Practice() {
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [entryNotice, setEntryNotice] = useState('');
+  const [sessionSeed, setSessionSeed] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -60,6 +62,10 @@ export default function Practice() {
     return selectedCategory ? questions.filter((q) => q.category === selectedCategory) : [];
   }, [reviewSessionUids, questionMap, selectedCategory]);
   const currentQuestion = filteredQuestions[currentQuestionIndex];
+  const optionView = useMemo(() => {
+    if (!currentQuestion) return null;
+    return buildQuestionOptionOrder(currentQuestion, sessionSeed || 'practice-default');
+  }, [currentQuestion, sessionSeed]);
   const completedCount = filteredQuestions.filter((q) => completedQuestions.includes(q.uid)).length;
   const completionPct = filteredQuestions.length > 0 ? Math.round((completedCount / filteredQuestions.length) * 100) : 0;
 
@@ -86,6 +92,7 @@ export default function Practice() {
       setSubmitError('');
       setShowExplanation(false);
       setEntryNotice('');
+      setSessionSeed(`wrong-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     } else {
       setEntryNotice('当前没有可复习的错题，已返回普通练习入口。');
     }
@@ -107,7 +114,9 @@ export default function Practice() {
 
     if (selectedAnswers.length > 0) {
       const expected = new Set(parseAnswerLabels(currentQuestion.ans));
-      const selected = new Set(selectedAnswers);
+      const selected = new Set(
+        selectedDisplayToOriginal(selectedAnswers, optionView?.labelToOriginalLabel || {}),
+      );
       const isCorrect =
         expected.size === selected.size && [...expected].every((label) => selected.has(label));
       setQuestionResult(currentQuestion.uid, isCorrect);
@@ -208,6 +217,7 @@ export default function Practice() {
                 setSelectedAnswers([]);
                 setSubmitError('');
                 setShowExplanation(false);
+                setSessionSeed(`${category}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
                 const modId = CATEGORY_MODULE_MAP[category];
                 if (modId) updateProgress(modId, 'in-progress');
               }}
@@ -232,7 +242,7 @@ export default function Practice() {
     );
   }
 
-  const correctAnswerLabels = parseAnswerLabels(currentQuestion.ans);
+  const correctAnswerLabels = optionView ? Array.from(optionView.expectedDisplay).sort() : parseAnswerLabels(currentQuestion.ans);
   const correctAnswerSet = new Set(correctAnswerLabels);
 
   return (
@@ -244,14 +254,14 @@ export default function Practice() {
             {isReviewMode ? `错题会话模式 · 共 ${filteredQuestions.length} 题` : `已完成 ${completedCount} / ${filteredQuestions.length}`}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {isReviewMode && (
             <button
               onClick={() => {
                 setPracticeState('selection');
                 setReviewSessionUids(null);
               }}
-              className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded text-xs font-bold transition-all"
+              className="h-10 px-4 inline-flex items-center justify-center bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg text-sm font-semibold shadow-sm transition-colors"
             >
               退出错题模式
             </button>
@@ -261,13 +271,13 @@ export default function Practice() {
               setPracticeState('selection');
               setReviewSessionUids(null);
             }}
-            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-bold transition-all"
+            className="h-10 px-4 inline-flex items-center justify-center bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold shadow-sm transition-colors"
           >
             返回分类
           </button>
           <button
             onClick={() => setProgressTabOpen((prev) => !prev)}
-            className="px-3 py-2 bg-[#1b3139] hover:bg-slate-700 text-white rounded text-xs font-bold transition-all"
+            className="h-10 px-4 inline-flex items-center justify-center bg-[#1b3139] hover:bg-[#29454f] border border-[#1b3139] text-white rounded-lg text-sm font-semibold shadow-sm transition-colors"
           >
             进度侧栏
           </button>
@@ -334,14 +344,15 @@ export default function Practice() {
         <div className="mb-6 text-gray-900 font-medium">{currentQuestion.q_zh}</div>
 
         <div className="space-y-3 mb-6">
-          {currentQuestion.opts.map((option, index) => {
-            const optionLabel = getOptionLabel(index);
+          {(optionView?.displayedOptions || []).map((item) => {
+            const optionLabel = item.displayLabel;
+            const option = item.text;
             const isSelected = selectedAnswers.includes(optionLabel);
             const isCorrect = correctAnswerSet.has(optionLabel);
 
             return (
               <button
-                key={index}
+                key={item.displayIndex}
                 onClick={() => {
                   if (showExplanation) return;
                   setSubmitError('');
