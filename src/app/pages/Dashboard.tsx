@@ -191,6 +191,10 @@ export default function Dashboard() {
     const i = 3 - idx;
     const start = thisWeekStart - i * 7 * dayMs;
     const end = start + 7 * dayMs;
+    const weekDate = new Date(start);
+    const month = weekDate.getMonth() + 1;
+    const firstDayOfMonth = new Date(weekDate.getFullYear(), weekDate.getMonth(), 1);
+    const weekOfMonth = Math.ceil((weekDate.getDate() + firstDayOfMonth.getDay()) / 7);
     let total = 0;
     let correct = 0;
     for (const evt of attemptEvents) {
@@ -202,7 +206,7 @@ export default function Dashboard() {
       }
     }
     return {
-      week: `W${idx + 1}`,
+      week: `${month}月W${weekOfMonth}`,
       rate: total > 0 ? toOneDecimal((correct / total) * 100) : 0,
     };
   });
@@ -245,8 +249,8 @@ export default function Dashboard() {
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={learningTrendData} margin={{ top: 8, right: 12, left: -20, bottom: 8 }}>
               <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" />
-              <XAxis dataKey="date" />
-              <YAxis allowDecimals={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 16 }} padding={{ left: 20, right: 20 }} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 16 }}/>
               <Tooltip />
               <Line type="monotone" dataKey="analyst" stroke="#2563eb" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 5 }} name="Data Analyst" connectNulls={false} />
               <Line type="monotone" dataKey="engineer" stroke="#7c3aed" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 5 }} name="Data Engineer" connectNulls={false} />
@@ -275,8 +279,8 @@ export default function Dashboard() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" />
-              <XAxis dataKey="week" />
-              <YAxis domain={[0, 100]} />
+              <XAxis dataKey="week" tick={{ fontSize: 16 }}/>
+              <YAxis domain={[0, 100]} tick={{ fontSize: 16 }}/>
               <Tooltip />
               <Bar dataKey="rate" fill="url(#accuracyBarGradient)" name="正确率(%)" radius={[10, 10, 0, 0]} barSize={56} maxBarSize={64}>
                 {accuracyTrendData.map((entry, index) => (
