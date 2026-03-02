@@ -20,6 +20,12 @@ test('Dashboard trend chart keeps analyst/engineer dual lines', () => {
   assert.match(src, /dataKey="engineer"/);
 });
 
+test('Dashboard routes admin users to AdminDashboard', () => {
+  assert.match(src, /import AdminDashboard from '.\/AdminDashboard'/);
+  assert.match(src, /if \(user\?\.role === 'admin'\)/);
+  assert.match(src, /return <AdminDashboard \/>/);
+});
+
 test('completedMetaMetrics can produce 7-day trend with per-track split', () => {
   const nowTs = localTs(2026, 2, 24, 12, 0, 0);
   const weekStart = getWeekStartMonday(nowTs);
