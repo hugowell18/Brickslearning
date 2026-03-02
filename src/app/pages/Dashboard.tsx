@@ -243,7 +243,7 @@ export default function Dashboard() {
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">学习趋势</h3>
           <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={learningTrendData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+            <LineChart data={learningTrendData} margin={{ top: 8, right: 12, left: -20, bottom: 8 }}>
               <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" />
               <XAxis dataKey="date" />
               <YAxis allowDecimals={false} />
