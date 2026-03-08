@@ -4,7 +4,6 @@ import { Link } from 'react-router';
 import { useApp } from '../../context/AppContext';
 import { getJson } from '../../lib/supabaseClient';
 import { questions as questionBank } from '../data/mockData';
-import AdminDashboard from './AdminDashboard';
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import {
   buildLearningTrendFromCompletedMeta,
@@ -30,9 +29,6 @@ function percentChange(thisWeek: number, prevWeek: number) {
 
 export default function Dashboard() {
   const { user, modules, cloudState } = useApp();
-  if (user?.role === 'admin') {
-    return <AdminDashboard />;
-  }
 
   const [completedMeta, setCompletedMeta] = useState<CompletedMeta>({});
   const [attemptEvents, setAttemptEvents] = useState<AttemptEvent[]>([]);

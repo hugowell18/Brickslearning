@@ -63,6 +63,18 @@ const ATTEMPT_EVENTS_KEY_PREFIX = `${PROGRESS_KEY_PREFIX}attempt_events:`;
 const PROFILE_KEY_PREFIX = 'db_profile:';
 const QUESTION_STATUS_KEY_PREFIX = `${PROGRESS_KEY_PREFIX}question_status:`;
 
+function isDeletedProfile(
+  profile:
+    | {
+        is_deleted?: boolean;
+        status?: string;
+      }
+    | null
+    | undefined,
+) {
+  return profile?.is_deleted === true || profile?.status === 'deleted';
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<typeof CURRENT_USER | null>(null);
   const [modules, setModules] = useState<typeof INITIAL_MODULES>(
@@ -207,6 +219,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
 
         if (remoteProfile) {
+          if (isDeletedProfile(remoteProfile)) {
+            await signOutAuth().catch(() => {});
+            setUser(null);
+            localStorage.removeItem('db_user');
+            return;
+          }
           const shouldUpdateName = !!remoteProfile.name && remoteProfile.name !== user.name;
           const shouldUpdateRole = !!remoteProfile.role && remoteProfile.role !== user.role;
           const incomingAvatar =
@@ -310,6 +328,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let remoteProfile: Awaited<ReturnType<typeof getUserProfile>> = null;
     try {
       remoteProfile = await getUserProfile(nextId);
+      if (isDeletedProfile(remoteProfile)) {
+        await signOutAuth().catch(() => {});
+        throw new Error('该账号已被停用，请联系管理员。');
+      }
       if (remoteProfile?.role) resolvedRole = remoteProfile.role as UserRole;
       if (!resolvedName && remoteProfile?.name) resolvedName = remoteProfile.name;
       if (!resolvedAvatar) {

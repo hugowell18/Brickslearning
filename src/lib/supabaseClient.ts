@@ -178,6 +178,10 @@ export async function setUserProfile(
     avatar_url?: string;
     avatar_thumb_url?: string;
     avatar_updated_at?: string;
+    status?: 'active' | 'deleted';
+    is_deleted?: boolean;
+    deleted_at?: string | null;
+    deleted_by?: string | null;
   },
 ) {
   // Keep both legacy and new keys in sync to avoid role drift across versions.
@@ -197,6 +201,10 @@ export async function getUserProfile(userId: string) {
     avatar_url?: string;
     avatar_thumb_url?: string;
     avatar_updated_at?: string;
+    status?: 'active' | 'deleted';
+    is_deleted?: boolean;
+    deleted_at?: string | null;
+    deleted_by?: string | null;
   };
 
   const [legacyProfile, namespacedProfile] = await Promise.all([
